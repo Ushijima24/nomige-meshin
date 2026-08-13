@@ -1,0 +1,105 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <title>飲みゲーパーティー</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=M+PLUS+Rounded+1c:wght@700;800&display=swap" rel="stylesheet" />
+  <style>
+    :root {
+      --text: #fff8f0;
+      --muted: #cbb8e8;
+      --accent: #ffd84d;
+      --accent2: #5ef0e0;
+      --font: "M PLUS Rounded 1c", sans-serif;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      min-height: 100dvh;
+      font-family: var(--font);
+      color: var(--text);
+      background:
+        radial-gradient(ellipse 120% 80% at 10% -10%, #6b3fa0 0%, transparent 55%),
+        radial-gradient(ellipse 90% 70% at 100% 0%, #e85d75 0%, transparent 45%),
+        linear-gradient(165deg, #1a0f2e, #2d1b4e 45%, #231340);
+      padding: 24px 16px 40px;
+    }
+    .wrap { max-width: 480px; margin: 0 auto; }
+    .brand {
+      text-align: center;
+      margin: 28px 0 32px;
+    }
+    .brand .name {
+      font-size: 0.9rem;
+      letter-spacing: 0.14em;
+      color: var(--accent2);
+      font-weight: 800;
+    }
+    .brand h1 {
+      margin: 8px 0 0;
+      font-size: 2rem;
+      background: linear-gradient(120deg, var(--accent), #fff, var(--accent2));
+      -webkit-background-clip: text;
+      background-clip: text;
+      color: transparent;
+    }
+    .brand p { color: var(--muted); margin-top: 10px; font-weight: 700; }
+    .game {
+      display: block;
+      text-decoration: none;
+      color: inherit;
+      background: rgba(255,255,255,0.1);
+      border: 1px solid rgba(255,255,255,0.18);
+      border-radius: 18px;
+      padding: 20px;
+      box-shadow: 0 12px 40px rgba(0,0,0,0.3);
+      transition: transform 0.12s ease;
+    }
+    .game:active { transform: scale(0.98); }
+    .game .title {
+      font-size: 1.35rem;
+      font-weight: 800;
+      color: var(--accent);
+    }
+    .game .desc {
+      margin-top: 8px;
+      color: var(--muted);
+      font-size: 0.92rem;
+      font-weight: 700;
+      line-height: 1.45;
+    }
+    .soon {
+      opacity: 0.45;
+      margin-top: 12px;
+      pointer-events: none;
+    }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="brand">
+      <div class="name">NOMI GE PARTY</div>
+      <h1>飲みゲーパーティー</h1>
+      <p>遊ぶゲームを選んでね</p>
+    </div>
+
+    <a class="game" href="/games/image-match/">
+      <div class="title">画像で全員一致</div>
+      <div class="desc">写真の一部を隠して、みんなの答えをそろえよう。ハズレは罰杯。</div>
+    </a>
+
+    <a class="game" href="/games/trap/" style="margin-top:12px">
+      <div class="title">トラップゲーム</div>
+      <div class="desc">お酒をカードでたらい回し。かわして、なすりつけて、負けたら飲め。</div>
+    </a>
+
+    <div class="game soon">
+      <div class="title">（次のゲーム予定）</div>
+      <div class="desc">ワードウルフ、NGワードなど追加予定</div>
+    </div>
+  </div>
+</body>
+</html>
