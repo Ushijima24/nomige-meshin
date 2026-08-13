@@ -48,6 +48,8 @@ app.get("/health", (_req, res) => {
   res.status(200).send("ok");
 });
 
+app.use(express.static(publicDir));
+
 app.get("/api/avatars", (_req, res) => {
   res.json({ avatars: listAvatars() });
 });

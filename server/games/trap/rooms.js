@@ -1070,16 +1070,17 @@ export function nextMatch(room, playerId) {
 
 export function backToLobby(room, playerId) {
   if (playerId !== room.hostId) return { error: "主催者のみ" };
+  room._botKickScheduled = false;
+  resetMatchFlags(room);
   room.phase = "lobby";
   room.holderId = null;
-  room.pending = null;
   room.lastResult = null;
   for (const p of playerList(room)) {
     p.hand = [];
     p.carryOver = null;
     p.carryChoicePending = false;
   }
-  pushLog(room, "ロビーに戻りました");
+  pushLog(room, "⛔ 主催者が試合を中止してロビーに戻しました");
   return { ok: true };
 }
 

@@ -604,6 +604,16 @@ function renderPlaying() {
       ${historyPrevHtml(s)}
     </div>
     ${ui.error ? `<div class="error">${escapeHtml(ui.error)}</div>` : ""}
+    ${
+      s.isHost
+        ? `<div class="panel" style="margin-top:28px">
+            <button type="button" class="btn ghost" id="abort-match" ${
+              ui.busy ? "disabled" : ""
+            }>試合を中止してロビーへ</button>
+            <p class="sub" style="margin:8px 0 0">バグで止まったとき用。主催者のみ。</p>
+          </div>`
+        : ""
+    }
     ${renderModals()}
   `;
 }
@@ -788,6 +798,11 @@ function bind() {
     emit("pick_carry", { instanceId: ui.carryPickId });
   });
   app.querySelector("#lobby")?.addEventListener("click", () => emit("back_to_lobby"));
+  app.querySelector("#abort-match")?.addEventListener("click", () => {
+    if (confirm("試合を中止してロビーに戻しますか？（進行中の試合は破棄されます）")) {
+      emit("back_to_lobby");
+    }
+  });
   app.querySelector("#lose")?.addEventListener("click", () => {
     const s = ui.state;
     const holder = s?.players?.find((p) => p.id === s.holderId);
