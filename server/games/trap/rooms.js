@@ -331,7 +331,7 @@ function captureEffectSnapshot(room) {
     lastPasserId: room.lastPasserId,
     taimanPair: room.taimanPair ? [...room.taimanPair] : null,
     bombCountdown: room.bombCountdown,
-    esconActive: !!room.esconActive,
+    esconPlayerId: room.esconPlayerId || null,
     pitouControllerId: room.pitouControllerId || null,
     turnCount: room.turnCount || 0,
     hanzaiDrawn: !!room.hanzaiDrawn,
@@ -361,7 +361,7 @@ function restoreEffectSnapshot(room, snap) {
   room.lastPasserId = snap.lastPasserId;
   room.taimanPair = snap.taimanPair ? [...snap.taimanPair] : null;
   room.bombCountdown = snap.bombCountdown;
-  room.esconActive = !!snap.esconActive;
+  room.esconPlayerId = snap.esconPlayerId || null;
   room.pitouControllerId = snap.pitouControllerId || null;
   room.turnCount = snap.turnCount || 0;
   room.hanzaiDrawn = !!snap.hanzaiDrawn;
@@ -698,7 +698,7 @@ function resetMatchFlags(room) {
   room.pending = null;
   room.turnCount = 0;
   room.peekView = null;
-  room.esconActive = false;
+  room.esconPlayerId = null;
   room.pitouControllerId = null;
   room.lastEffectSnapshot = null;
   room.matchLog = [];
@@ -756,7 +756,7 @@ export function createRoom(hostName, avatar) {
     taimanPair: null,
     bombCountdown: null,
     hanzaiDrawn: false,
-    esconActive: false,
+    esconPlayerId: null,
     pending: null,
     lastResult: null,
     turnCount: 0,
@@ -1349,10 +1349,10 @@ export function playCard(room, actorId, instanceId, opts = {}) {
   const bombHit =
     room.bombCountdown != null && room.bombCountdown === 0;
 
-  // エスコン発動中: 自分ターン継続カード（エスコン自身も含む）→ ランダム渡し
+  // エスコンは使った本人だけ: 自分ターン継続カード（エスコン自身も含む）→ ランダム渡し
   if (
     room.phase === "playing" &&
-    room.esconActive &&
+    room.esconPlayerId === playerId &&
     effectDef.keepsTurn &&
     room.holderId === playerId
   ) {
@@ -1529,10 +1529,10 @@ function resolveEffect(room, playerId, effectId, opts) {
       return {};
     }
     case "escon": {
-      room.esconActive = true;
+      room.esconPlayerId = playerId;
       pushLog(
         room,
-        `📡 エスコン発動！これ以降の「自分ターン継続」カードはランダム渡し`
+        `📡 エスコン発動！${player.name} が使う「自分ターン継続」だけランダム渡し`
       );
       return {};
     }
@@ -1752,7 +1752,12 @@ export function publicState(room, viewerId) {
   }));
 
   const fieldStatuses = [];
-  if (room.esconActive) fieldStatuses.push("エスコン発動中（自分ターン継続→ランダム渡し）");
+  if (room.esconPlayerId) {
+    const en = getP(room, room.esconPlayerId)?.name || "?";
+    fieldStatuses.push(
+      `エスコン発動中（${en} の自分ターン継続→ランダム渡し）`
+    );
+  }
   if (room.pitouControllerId) {
     const pn = getP(room, room.pitouControllerId)?.name || "?";
     fieldStatuses.push(`ネフェルピトー ${pn} が全員のカードを選択中`);
@@ -1805,7 +1810,7 @@ export function publicState(room, viewerId) {
     lastPasserId: room.lastPasserId,
     bombCountdown: room.bombCountdown,
     taimanPair: room.taimanPair,
-    esconActive: !!room.esconActive,
+    esconPlayerId: room.esconPlayerId || null,
     turnCount: room.turnCount,
     log: (room.matchLog || []).slice(0, 30),
     matchHistory: (room.matchHistory || []).slice(0, 8),

@@ -803,14 +803,7 @@ function bind() {
       emit("back_to_lobby");
     }
   });
-  app.querySelector("#lose")?.addEventListener("click", () => {
-    const s = ui.state;
-    const holder = s?.players?.find((p) => p.id === s.holderId);
-    const msg = s?.pitouPicking
-      ? `${holder?.name || "相手"} の負けを認めますか？`
-      : "負けを認めて飲みますか？";
-    if (confirm(msg)) emit("admit_lose");
-  });
+  app.querySelector("#lose")?.addEventListener("click", () => emit("admit_lose"));
   app.querySelector("#close-peek")?.addEventListener("click", () =>
     emit("clear_peek")
   );
