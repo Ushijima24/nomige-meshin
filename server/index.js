@@ -31,6 +31,7 @@ import {
 import { questionCount, imagesDir } from "./games/image-match/questions.js";
 import * as trap from "./games/trap/rooms.js";
 import { CARD_LIST, RANK_RATES, cardLabel } from "./games/trap/cards.js";
+import * as rankBj from "./games/rank-bj/rooms.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const publicDir = path.join(__dirname, "..", "public");
@@ -486,7 +487,220 @@ io.of("/trap").on("connection", (socket) => {
   });
 });
 
+/** ---- ランキングBJ (/rank-bj) ---- */
+const rankBjSessions = new Map();
+
+function emitRankBj(room) {
+  if (!room) return;
+  for (const [sid, sess] of rankBjSessions) {
+    if (sess.roomCode !== room.code) continue;
+    const sock = io.of("/rank-bj").sockets.get(sid);
+    if (sock) sock.emit("state", rankBj.publicState(room, sess.playerId));
+  }
+}
+
+function kickRankBjBots(room) {
+  if (!room || room._bjBotKick) return;
+  const botIds = rankBj.listBotsNeedingAction(room);
+  if (!botIds.length) return;
+  const botId = botIds[0];
+  room._bjBotKick = true;
+  setTimeout(() => {
+    room._bjBotKick = false;
+    if (room.phase !== "playing") return;
+    const still = rankBj.listBotsNeedingAction(room);
+    if (!still.includes(botId)) {
+      kickRankBjBots(room);
+      return;
+    }
+    rankBj.botAnswer(room, botId);
+    emitRankBj(room);
+    kickRankBjBots(room);
+  }, 900 + Math.floor(Math.random() * 800));
+}
+
+function bindRankBj(socket, roomCode, playerId) {
+  rankBjSessions.set(socket.id, { roomCode, playerId });
+  socket.join(roomCode);
+}
+
+io.of("/rank-bj").on("connection", (socket) => {
+  socket.on("create_room", ({ name, avatar }, cb) => {
+    try {
+      const { room, playerId } = rankBj.createRoom(name, avatar);
+      bindRankBj(socket, room.code, playerId);
+      cb?.({ ok: true, playerId, code: room.code });
+      emitRankBj(room);
+    } catch (e) {
+      cb?.({ ok: false, error: e.message || "作成失敗" });
+    }
+  });
+
+  socket.on("join_room", ({ code, name, avatar }, cb) => {
+    try {
+      const result = rankBj.joinRoom(code, name, avatar);
+      if (result.error) return cb?.({ ok: false, error: result.error });
+      bindRankBj(socket, result.room.code, result.playerId);
+      cb?.({ ok: true, playerId: result.playerId, code: result.room.code });
+      emitRankBj(result.room);
+    } catch (e) {
+      cb?.({ ok: false, error: e.message || "参加失敗" });
+    }
+  });
+
+  socket.on("add_bot", (_data, cb) => {
+    const sess = rankBjSessions.get(socket.id);
+    if (!sess) return cb?.({ ok: false, error: "未参加" });
+    const room = rankBj.getRoom(sess.roomCode);
+    if (!room) return cb?.({ ok: false, error: "ルームなし" });
+    const result = rankBj.addBot(room, sess.playerId);
+    if (result.error) return cb?.({ ok: false, error: result.error });
+    cb?.({ ok: true });
+    emitRankBj(room);
+  });
+
+  socket.on("remove_bot", ({ botId }, cb) => {
+    const sess = rankBjSessions.get(socket.id);
+    if (!sess) return cb?.({ ok: false, error: "未参加" });
+    const room = rankBj.getRoom(sess.roomCode);
+    if (!room) return cb?.({ ok: false, error: "ルームなし" });
+    const result = rankBj.removeBot(room, sess.playerId, botId);
+    if (result.error) return cb?.({ ok: false, error: result.error });
+    cb?.({ ok: true });
+    emitRankBj(room);
+  });
+
+  socket.on("start_game", (_data, cb) => {
+    const sess = rankBjSessions.get(socket.id);
+    if (!sess) return cb?.({ ok: false, error: "未参加" });
+    const room = rankBj.getRoom(sess.roomCode);
+    if (!room) return cb?.({ ok: false, error: "ルームなし" });
+    const result = rankBj.startGame(room, sess.playerId);
+    if (result.error) return cb?.({ ok: false, error: result.error });
+    cb?.({ ok: true });
+    emitRankBj(room);
+  });
+
+  socket.on("refresh_topics", (_data, cb) => {
+    const sess = rankBjSessions.get(socket.id);
+    if (!sess) return cb?.({ ok: false, error: "未参加" });
+    const room = rankBj.getRoom(sess.roomCode);
+    if (!room) return cb?.({ ok: false, error: "ルームなし" });
+    const result = rankBj.refreshTopics(room, sess.playerId);
+    if (result.error) return cb?.({ ok: false, error: result.error });
+    cb?.({ ok: true });
+    emitRankBj(room);
+  });
+
+  socket.on("search_topics", async ({ q }, cb) => {
+    const sess = rankBjSessions.get(socket.id);
+    if (!sess) return cb?.({ ok: false, error: "未参加" });
+    const room = rankBj.getRoom(sess.roomCode);
+    if (!room) return cb?.({ ok: false, error: "ルームなし" });
+    try {
+      const result = await rankBj.searchTopics(room, sess.playerId, q);
+      if (result.error) return cb?.({ ok: false, error: result.error });
+      cb?.({ ok: true });
+      emitRankBj(room);
+    } catch (e) {
+      cb?.({ ok: false, error: e.message || "検索失敗" });
+    }
+  });
+
+  socket.on("pick_topic", async ({ slug }, cb) => {
+    const sess = rankBjSessions.get(socket.id);
+    if (!sess) return cb?.({ ok: false, error: "未参加" });
+    const room = rankBj.getRoom(sess.roomCode);
+    if (!room) return cb?.({ ok: false, error: "ルームなし" });
+    try {
+      const result = await rankBj.pickTopic(room, sess.playerId, slug);
+      if (result.error) return cb?.({ ok: false, error: result.error });
+      cb?.({ ok: true });
+      emitRankBj(room);
+      kickRankBjBots(room);
+    } catch (e) {
+      cb?.({ ok: false, error: e.message || "取得失敗" });
+    }
+  });
+
+  socket.on("submit_answer", ({ text }, cb) => {
+    const sess = rankBjSessions.get(socket.id);
+    if (!sess) return cb?.({ ok: false, error: "未参加" });
+    const room = rankBj.getRoom(sess.roomCode);
+    if (!room) return cb?.({ ok: false, error: "ルームなし" });
+    const result = rankBj.submitAnswer(room, sess.playerId, text);
+    if (result.error) return cb?.({ ok: false, error: result.error });
+    cb?.({ ok: true });
+    emitRankBj(room);
+    kickRankBjBots(room);
+  });
+
+  socket.on("gm_confirm", (data, cb) => {
+    const sess = rankBjSessions.get(socket.id);
+    if (!sess) return cb?.({ ok: false, error: "未参加" });
+    const room = rankBj.getRoom(sess.roomCode);
+    if (!room) return cb?.({ ok: false, error: "ルームなし" });
+    const result = rankBj.gmConfirm(room, sess.playerId, data || {});
+    if (result.error) return cb?.({ ok: false, error: result.error });
+    cb?.({ ok: true });
+    emitRankBj(room);
+    kickRankBjBots(room);
+  });
+
+  socket.on("stand", (_data, cb) => {
+    const sess = rankBjSessions.get(socket.id);
+    if (!sess) return cb?.({ ok: false, error: "未参加" });
+    const room = rankBj.getRoom(sess.roomCode);
+    if (!room) return cb?.({ ok: false, error: "ルームなし" });
+    const result = rankBj.stand(room, sess.playerId);
+    if (result.error) return cb?.({ ok: false, error: result.error });
+    cb?.({ ok: true });
+    emitRankBj(room);
+    kickRankBjBots(room);
+  });
+
+  socket.on("next_round", (_data, cb) => {
+    const sess = rankBjSessions.get(socket.id);
+    if (!sess) return cb?.({ ok: false, error: "未参加" });
+    const room = rankBj.getRoom(sess.roomCode);
+    if (!room) return cb?.({ ok: false, error: "ルームなし" });
+    const result = rankBj.nextRound(room, sess.playerId);
+    if (result.error) return cb?.({ ok: false, error: result.error });
+    cb?.({ ok: true });
+    emitRankBj(room);
+  });
+
+  socket.on("back_to_lobby", (_data, cb) => {
+    const sess = rankBjSessions.get(socket.id);
+    if (!sess) return cb?.({ ok: false, error: "未参加" });
+    const room = rankBj.getRoom(sess.roomCode);
+    if (!room) return cb?.({ ok: false, error: "ルームなし" });
+    const result = rankBj.backToLobby(room, sess.playerId);
+    if (result.error) return cb?.({ ok: false, error: result.error });
+    cb?.({ ok: true });
+    emitRankBj(room);
+  });
+
+  socket.on("disconnect", () => {
+    const sess = rankBjSessions.get(socket.id);
+    if (!sess) return;
+    rankBjSessions.delete(socket.id);
+    const room = rankBj.getRoom(sess.roomCode);
+    if (!room) return;
+    const stillHere = [...rankBjSessions.values()].some(
+      (s) => s.roomCode === sess.roomCode && s.playerId === sess.playerId
+    );
+    if (stillHere) return;
+    const updated = rankBj.leaveRoom(room, sess.playerId);
+    if (updated) {
+      rankBj.setConnected(updated, sess.playerId, false);
+      emitRankBj(updated);
+    }
+  });
+});
+
 httpServer.listen(PORT, "0.0.0.0", () => {
   console.log(`飲みゲーパーティー http://localhost:${PORT}`);
-  console.log(`トラップゲーム   http://localhost:${PORT}/games/trap/`);
+  console.log(`トラップゲーム     http://localhost:${PORT}/games/trap/`);
+  console.log(`ランキングBJ       http://localhost:${PORT}/games/rank-bj/`);
 });

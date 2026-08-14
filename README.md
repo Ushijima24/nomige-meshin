@@ -10,13 +10,13 @@
     games/
       image-match/                # 画像で全員一致（ロジック）
       trap/                       # トラップゲーム（ロジック）
-        cards.js
-        rooms.js
+      rank-bj/                    # ランキングBJ（ロジック＋みんラン取得）
   public/
     index.html                    # ゲーム選択ハブ
     games/
       image-match/
       trap/
+      rank-bj/
 ```
 
 ## 起動（自分のPCだけ）
@@ -29,7 +29,8 @@ npm start
 
 - ハブ: http://localhost:3847  
 - 画像で全員一致: http://localhost:3847/games/image-match/  
-- トラップゲーム: http://localhost:3847/games/trap/
+- トラップゲーム: http://localhost:3847/games/trap/  
+- ランキングBJ: http://localhost:3847/games/rank-bj/
 
 同じWi-Fiのスマホから使う場合は、PCのIP（例: `http://192.168.x.x:3847`）を開く。
 
@@ -46,7 +47,8 @@ Socket.IO があるので、静的ホスティング（GitHub Pages など）で
    - **Start Command:** `npm start`
    - **Instance type:** Free
 4. Deploy 後、`https://xxxx.onrender.com` が全員用のURL  
-   トラップは `https://xxxx.onrender.com/games/trap/`
+   トラップは `https://xxxx.onrender.com/games/trap/`  
+   ランキングBJは `https://xxxx.onrender.com/games/rank-bj/`
 
 無料プランはしばらくアクセスがないとスリープします。最初の1回は起動に十数秒かかることがあります。
 
