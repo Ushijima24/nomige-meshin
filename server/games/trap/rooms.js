@@ -402,13 +402,17 @@ function removeFromHand(player, instanceId) {
   return card;
 }
 
-function tickTurnCounters(room, actorId) {
+function tickTurnCounters(room, skip = {}) {
   room.turnCount = (room.turnCount || 0) + 1;
   for (const p of playerList(room)) {
-    if (p.stealthTurns > 0) p.stealthTurns -= 1;
-    if (p.clockTurns > 0) p.clockTurns -= 1;
+    if (p.stealthTurns > 0 && p.id !== skip.stealthId) p.stealthTurns -= 1;
+    if (p.clockTurns > 0 && p.id !== skip.clockId) p.clockTurns -= 1;
   }
-  if (room.bombCountdown != null && room.bombCountdown > 0) {
+  if (
+    !skip.bomb &&
+    room.bombCountdown != null &&
+    room.bombCountdown > 0
+  ) {
     room.bombCountdown -= 1;
   }
 }
@@ -1344,7 +1348,11 @@ export function playCard(room, actorId, instanceId, opts = {}) {
     });
   }
 
-  tickTurnCounters(room, playerId);
+  tickTurnCounters(room, {
+    stealthId: effectId === "stealth" ? playerId : null,
+    clockId: effectId === "clock" ? opts.targetId : null,
+    bomb: effectId === "jigen_bakudan",
+  });
 
   const bombHit =
     room.bombCountdown != null && room.bombCountdown === 0;
