@@ -102,6 +102,25 @@ export function getRoom(roomCode) {
   return rooms.get(String(roomCode || "").toUpperCase()) || null;
 }
 
+export function rejoinRoom(roomCode, playerId) {
+  const room = getRoom(roomCode);
+  if (!room) return { error: "ルームが見つかりません" };
+  const p = getP(room, playerId);
+  if (!p || p.isBot) return { error: "この部屋にいません" };
+  p.connected = true;
+  return { room, playerId };
+}
+
+export function kickFromLobby(room, hostId, targetId) {
+  if (!requireHost(room, hostId)) return { error: "主催者のみ" };
+  if (room.phase !== "lobby") return { error: "ロビーでのみ削除できます" };
+  if (targetId === hostId) return { error: "自分は削除できません" };
+  const t = getP(room, targetId);
+  if (!t) return { error: "いません" };
+  room.players.delete(targetId);
+  return { ok: true, kickedId: targetId, kickedName: t.name };
+}
+
 export function joinRoom(roomCode, name, avatar) {
   const room = getRoom(roomCode);
   if (!room) return { error: "ルームが見つかりません" };

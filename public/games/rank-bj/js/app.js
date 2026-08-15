@@ -1,5 +1,10 @@
 const AVATARS = ["🦊", "🐻", "🐱", "🐸", "🐼", "🐷", "🦁", "🐨", "🐵", "🐰"];
-const socket = io("/rank-bj", { transports: ["websocket", "polling"] });
+const socket = io("/rank-bj", {
+  transports: ["websocket", "polling"],
+  reconnection: true,
+  reconnectionAttempts: Infinity,
+  reconnectionDelay: 500,
+});
 
 const app = document.getElementById("app");
 
@@ -19,6 +24,58 @@ const ui = {
 
 const params = new URLSearchParams(location.search);
 if (params.get("room")) ui.joinCode = params.get("room").toUpperCase();
+
+const SESSION_KEY = "rankbj_session";
+function loadSession() {
+  try {
+    return JSON.parse(localStorage.getItem(SESSION_KEY) || "null");
+  } catch {
+    return null;
+  }
+}
+function saveSession(code, playerId) {
+  if (code && playerId) {
+    localStorage.setItem(SESSION_KEY, JSON.stringify({ code, playerId }));
+  }
+}
+function clearSession() {
+  localStorage.removeItem(SESSION_KEY);
+}
+function tryRejoin() {
+  const sess = loadSession();
+  if (!sess?.code || !sess?.playerId) return;
+  socket.emit("rejoin", { code: sess.code, playerId: sess.playerId }, (res) => {
+    if (res?.ok) {
+      history.replaceState({}, "", `?room=${res.code}`);
+      return;
+    }
+    clearSession();
+    ui.state = null;
+    ui.view = "home";
+    if (res?.error === "この部屋にいません") {
+      ui.error = "部屋から外れました。もう一度入ってね";
+    }
+    render();
+  });
+}
+socket.on("connect", tryRejoin);
+socket.on("kicked", ({ message } = {}) => {
+  clearSession();
+  ui.state = null;
+  ui.view = "home";
+  ui.error = message || "主催者に部屋から外されました";
+  history.replaceState({}, "", location.pathname);
+  render();
+});
+document.addEventListener("visibilitychange", () => {
+  if (document.visibilityState !== "visible") return;
+  if (socket.disconnected) socket.connect();
+  else tryRejoin();
+});
+window.addEventListener("pageshow", () => {
+  if (socket.disconnected) socket.connect();
+  else tryRejoin();
+});
 
 socket.on("state", (state) => {
   ui.state = state;
@@ -73,7 +130,7 @@ function cardHtml(c) {
   </div>`;
 }
 
-function playersHtml(players, { removableBots = false } = {}) {
+function playersHtml(players, { canRemove = false } = {}) {
   return `<div class="players">${players
     .map((p) => {
       const flags = [];
@@ -117,8 +174,8 @@ function playersHtml(players, { removableBots = false } = {}) {
             : ""
         }
         ${
-          removableBots && p.isBot
-            ? `<button type="button" class="btn ghost" style="padding:4px 8px;font-size:0.7rem;margin-top:6px" data-remove-bot="${p.id}">削除</button>`
+          canRemove && p.id !== ui.state?.you
+            ? `<button type="button" class="btn ghost" style="padding:4px 8px;font-size:0.7rem;margin-top:6px" data-kick="${p.id}">削除</button>`
             : ""
         }
       </div>`;
@@ -173,7 +230,7 @@ function renderLobby() {
     </div>
     <div class="panel">
       <div class="section-title">参加者 ${s.players.length}/10</div>
-      ${playersHtml(s.players, { removableBots: s.isHost })}
+      ${playersHtml(s.players, { canRemove: s.isHost })}
       ${
         s.isHost
           ? `<div class="row" style="margin-top:12px">
@@ -187,6 +244,7 @@ function renderLobby() {
         ? `<button class="btn" id="start" ${ui.busy || s.players.length < 2 ? "disabled" : ""}>ゲーム開始（2人〜）</button>`
         : `<p class="sub">GMの開始待ち…</p>`
     }
+    <button class="btn ghost" id="leave-room" ${ui.busy ? "disabled" : ""} style="margin-top:12px">この部屋から出る</button>
     ${drinkBoardHtml()}
     ${ui.error ? `<div class="error">${escapeHtml(ui.error)}</div>` : ""}
   `;
@@ -446,18 +504,41 @@ app.addEventListener("click", (e) => {
   if (t.id === "create") {
     ui.name = document.getElementById("name")?.value || ui.name;
     saveProfile();
-    emit("create_room", { name: ui.name, avatar: ui.avatar });
+    emit("create_room", { name: ui.name, avatar: ui.avatar }).then((res) => {
+      if (res?.ok) {
+        saveSession(res.code, res.playerId);
+        history.replaceState({}, "", `?room=${res.code}`);
+      }
+    });
     return;
   }
   if (t.id === "join") {
     ui.name = document.getElementById("name")?.value || ui.name;
     ui.joinCode = (document.getElementById("code")?.value || "").toUpperCase();
     saveProfile();
-    emit("join_room", { code: ui.joinCode, name: ui.name, avatar: ui.avatar });
+    emit("join_room", { code: ui.joinCode, name: ui.name, avatar: ui.avatar }).then(
+      (res) => {
+        if (res?.ok) {
+          saveSession(res.code, res.playerId);
+          history.replaceState({}, "", `?room=${res.code}`);
+        }
+      }
+    );
     return;
   }
   if (t.id === "add-bot") return emit("add_bot");
-  if (t.dataset.removeBot) return emit("remove_bot", { botId: t.dataset.removeBot });
+  if (t.dataset.kick) return emit("kick_player", { playerId: t.dataset.kick });
+  if (t.id === "leave-room") {
+    emit("leave_room").then(() => {
+      clearSession();
+      ui.state = null;
+      ui.view = "home";
+      ui.error = "";
+      history.replaceState({}, "", location.pathname);
+      render();
+    });
+    return;
+  }
   if (t.id === "start") return emit("start_game");
   if (t.id === "refresh-topics") return emit("refresh_topics");
   if (t.id === "search-topics") {

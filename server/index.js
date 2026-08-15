@@ -22,6 +22,8 @@ import {
   listAvatars,
   addBot,
   removeBot,
+  rejoinRoom,
+  kickFromLobby,
   answerAsBot,
   listBotsNeedingAnswer,
   castVote,
@@ -43,7 +45,52 @@ const app = express();
 const httpServer = createServer(app);
 const io = new Server(httpServer, {
   cors: { origin: "*" },
+  pingInterval: 10000,
+  pingTimeout: 30000,
 });
+
+const REJOIN_GRACE_MS = 10 * 60 * 1000;
+
+function createGraceTracker(sessions, getRoomFn, leaveFn, emitFn) {
+  const timers = new Map();
+  const key = (code, id) => `${code}:${id}`;
+  return {
+    cancel(code, id) {
+      const k = key(code, id);
+      clearTimeout(timers.get(k));
+      timers.delete(k);
+    },
+    schedule(code, id) {
+      this.cancel(code, id);
+      timers.set(
+        key(code, id),
+        setTimeout(() => {
+          timers.delete(key(code, id));
+          const still = [...sessions.values()].some(
+            (s) => s.roomCode === code && s.playerId === id
+          );
+          if (still) return;
+          const room = getRoomFn(code);
+          if (!room || room.phase !== "lobby") return;
+          const updated = leaveFn(room, id);
+          if (updated) emitFn(updated);
+        }, REJOIN_GRACE_MS)
+      );
+    },
+  };
+}
+
+function notifyKicked(getSocket, sessions, roomCode, playerId, message) {
+  for (const [sid, s] of [...sessions]) {
+    if (s.roomCode !== roomCode || s.playerId !== playerId) continue;
+    const sock = getSocket(sid);
+    sock?.emit("kicked", {
+      message: message || "主催者に部屋から外されました",
+    });
+    sock?.leave(roomCode);
+    sessions.delete(sid);
+  }
+}
 
 app.get("/health", (_req, res) => {
   res.status(200).send("ok");
@@ -85,6 +132,8 @@ function emitRoom(room) {
   }
 }
 
+const imageGrace = createGraceTracker(sessions, getRoom, leaveRoom, emitRoom);
+
 function kickBots(room) {
   const botIds = listBotsNeedingAnswer(room);
   botIds.forEach((botId, i) => {
@@ -110,6 +159,7 @@ function kickBotVotes(room) {
 function bind(socket, roomCode, playerId) {
   sessions.set(socket.id, { roomCode, playerId });
   socket.join(roomCode);
+  imageGrace.cancel(roomCode, playerId);
 }
 
 io.on("connection", (socket) => {
@@ -134,6 +184,52 @@ io.on("connection", (socket) => {
     } catch (e) {
       cb?.({ ok: false, error: e.message || "参加失敗" });
     }
+  });
+
+  socket.on("rejoin", ({ code, playerId }, cb) => {
+    try {
+      const result = rejoinRoom(code, playerId);
+      if (result.error) return cb?.({ ok: false, error: result.error });
+      bind(socket, result.room.code, result.playerId);
+      setConnected(result.room, result.playerId, true);
+      cb?.({ ok: true, playerId: result.playerId, code: result.room.code });
+      emitRoom(result.room);
+    } catch (e) {
+      cb?.({ ok: false, error: e.message || "復帰失敗" });
+    }
+  });
+
+  socket.on("kick_player", ({ playerId }, cb) => {
+    const sess = sessions.get(socket.id);
+    if (!sess) return cb?.({ ok: false, error: "未参加" });
+    const room = getRoom(sess.roomCode);
+    if (!room) return cb?.({ ok: false, error: "ルームなし" });
+    const result = kickFromLobby(room, sess.playerId, playerId);
+    if (result.error) return cb?.({ ok: false, error: result.error });
+    notifyKicked(
+      (sid) => io.sockets.sockets.get(sid),
+      sessions,
+      room.code,
+      result.kickedId,
+      `${result.kickedName} は部屋から外されました`
+    );
+    imageGrace.cancel(room.code, result.kickedId);
+    cb?.({ ok: true });
+    emitRoom(room);
+  });
+
+  socket.on("leave_room", (_data, cb) => {
+    const sess = sessions.get(socket.id);
+    if (!sess) return cb?.({ ok: true });
+    sessions.delete(socket.id);
+    socket.leave(sess.roomCode);
+    imageGrace.cancel(sess.roomCode, sess.playerId);
+    const room = getRoom(sess.roomCode);
+    if (room) {
+      const updated = leaveRoom(room, sess.playerId);
+      if (updated) emitRoom(updated);
+    }
+    cb?.({ ok: true });
   });
 
   socket.on("add_bot", (_data, cb) => {
@@ -275,19 +371,15 @@ io.on("connection", (socket) => {
     const sess = sessions.get(socket.id);
     if (!sess) return;
     sessions.delete(socket.id);
-    const room = getRoom(sess.roomCode);
-    if (!room) return;
-
     const stillHere = [...sessions.values()].some(
       (s) => s.roomCode === sess.roomCode && s.playerId === sess.playerId
     );
     if (stillHere) return;
-
-    const updated = leaveRoom(room, sess.playerId);
-    if (updated) {
-      setConnected(updated, sess.playerId, false);
-      emitRoom(updated);
-    }
+    const room = getRoom(sess.roomCode);
+    if (!room) return;
+    setConnected(room, sess.playerId, false);
+    emitRoom(room);
+    imageGrace.schedule(sess.roomCode, sess.playerId);
   });
 });
 
@@ -302,6 +394,13 @@ function emitTrap(room) {
     if (sock) sock.emit("state", trap.publicState(room, sess.playerId));
   }
 }
+
+const trapGrace = createGraceTracker(
+  trapSessions,
+  (c) => trap.getRoom(c),
+  (room, id) => trap.leaveRoom(room, id),
+  emitTrap
+);
 
 function kickTrapBots(room) {
   if (room._botKickScheduled) return;
@@ -334,6 +433,7 @@ function kickTrapBots(room) {
 function bindTrap(socket, roomCode, playerId) {
   trapSessions.set(socket.id, { roomCode, playerId });
   socket.join(roomCode);
+  trapGrace.cancel(roomCode, playerId);
 }
 
 io.of("/trap").on("connection", (socket) => {
@@ -358,6 +458,53 @@ io.of("/trap").on("connection", (socket) => {
     } catch (e) {
       cb?.({ ok: false, error: e.message || "参加失敗" });
     }
+  });
+
+  socket.on("rejoin", ({ code, playerId }, cb) => {
+    try {
+      const result = trap.rejoinRoom(code, playerId);
+      if (result.error) return cb?.({ ok: false, error: result.error });
+      bindTrap(socket, result.room.code, result.playerId);
+      trap.setConnected(result.room, result.playerId, true);
+      cb?.({ ok: true, playerId: result.playerId, code: result.room.code });
+      emitTrap(result.room);
+      kickTrapBots(result.room);
+    } catch (e) {
+      cb?.({ ok: false, error: e.message || "復帰失敗" });
+    }
+  });
+
+  socket.on("kick_player", ({ playerId }, cb) => {
+    const sess = trapSessions.get(socket.id);
+    if (!sess) return cb?.({ ok: false, error: "未参加" });
+    const room = trap.getRoom(sess.roomCode);
+    if (!room) return cb?.({ ok: false, error: "ルームなし" });
+    const result = trap.kickFromLobby(room, sess.playerId, playerId);
+    if (result.error) return cb?.({ ok: false, error: result.error });
+    notifyKicked(
+      (sid) => io.of("/trap").sockets.get(sid),
+      trapSessions,
+      room.code,
+      result.kickedId,
+      `${result.kickedName} は部屋から外されました`
+    );
+    trapGrace.cancel(room.code, result.kickedId);
+    cb?.({ ok: true });
+    emitTrap(room);
+  });
+
+  socket.on("leave_room", (_data, cb) => {
+    const sess = trapSessions.get(socket.id);
+    if (!sess) return cb?.({ ok: true });
+    trapSessions.delete(socket.id);
+    socket.leave(sess.roomCode);
+    trapGrace.cancel(sess.roomCode, sess.playerId);
+    const room = trap.getRoom(sess.roomCode);
+    if (room) {
+      const updated = trap.leaveRoom(room, sess.playerId);
+      if (updated) emitTrap(updated);
+    }
+    cb?.({ ok: true });
   });
 
   socket.on("add_bot", (_data, cb) => {
@@ -473,17 +620,15 @@ io.of("/trap").on("connection", (socket) => {
     const sess = trapSessions.get(socket.id);
     if (!sess) return;
     trapSessions.delete(socket.id);
-    const room = trap.getRoom(sess.roomCode);
-    if (!room) return;
     const stillHere = [...trapSessions.values()].some(
       (s) => s.roomCode === sess.roomCode && s.playerId === sess.playerId
     );
     if (stillHere) return;
-    const updated = trap.leaveRoom(room, sess.playerId);
-    if (updated) {
-      trap.setConnected(updated, sess.playerId, false);
-      emitTrap(updated);
-    }
+    const room = trap.getRoom(sess.roomCode);
+    if (!room) return;
+    trap.setConnected(room, sess.playerId, false);
+    emitTrap(room);
+    trapGrace.schedule(sess.roomCode, sess.playerId);
   });
 });
 
@@ -498,6 +643,13 @@ function emitRankBj(room) {
     if (sock) sock.emit("state", rankBj.publicState(room, sess.playerId));
   }
 }
+
+const rankBjGrace = createGraceTracker(
+  rankBjSessions,
+  (c) => rankBj.getRoom(c),
+  (room, id) => rankBj.leaveRoom(room, id),
+  emitRankBj
+);
 
 function kickRankBjBots(room) {
   if (!room || room._bjBotKick) return;
@@ -522,6 +674,7 @@ function kickRankBjBots(room) {
 function bindRankBj(socket, roomCode, playerId) {
   rankBjSessions.set(socket.id, { roomCode, playerId });
   socket.join(roomCode);
+  rankBjGrace.cancel(roomCode, playerId);
 }
 
 io.of("/rank-bj").on("connection", (socket) => {
@@ -546,6 +699,53 @@ io.of("/rank-bj").on("connection", (socket) => {
     } catch (e) {
       cb?.({ ok: false, error: e.message || "参加失敗" });
     }
+  });
+
+  socket.on("rejoin", ({ code, playerId }, cb) => {
+    try {
+      const result = rankBj.rejoinRoom(code, playerId);
+      if (result.error) return cb?.({ ok: false, error: result.error });
+      bindRankBj(socket, result.room.code, result.playerId);
+      rankBj.setConnected(result.room, result.playerId, true);
+      cb?.({ ok: true, playerId: result.playerId, code: result.room.code });
+      emitRankBj(result.room);
+      kickRankBjBots(result.room);
+    } catch (e) {
+      cb?.({ ok: false, error: e.message || "復帰失敗" });
+    }
+  });
+
+  socket.on("kick_player", ({ playerId }, cb) => {
+    const sess = rankBjSessions.get(socket.id);
+    if (!sess) return cb?.({ ok: false, error: "未参加" });
+    const room = rankBj.getRoom(sess.roomCode);
+    if (!room) return cb?.({ ok: false, error: "ルームなし" });
+    const result = rankBj.kickFromLobby(room, sess.playerId, playerId);
+    if (result.error) return cb?.({ ok: false, error: result.error });
+    notifyKicked(
+      (sid) => io.of("/rank-bj").sockets.get(sid),
+      rankBjSessions,
+      room.code,
+      result.kickedId,
+      `${result.kickedName} は部屋から外されました`
+    );
+    rankBjGrace.cancel(room.code, result.kickedId);
+    cb?.({ ok: true });
+    emitRankBj(room);
+  });
+
+  socket.on("leave_room", (_data, cb) => {
+    const sess = rankBjSessions.get(socket.id);
+    if (!sess) return cb?.({ ok: true });
+    rankBjSessions.delete(socket.id);
+    socket.leave(sess.roomCode);
+    rankBjGrace.cancel(sess.roomCode, sess.playerId);
+    const room = rankBj.getRoom(sess.roomCode);
+    if (room) {
+      const updated = rankBj.leaveRoom(room, sess.playerId);
+      if (updated) emitRankBj(updated);
+    }
+    cb?.({ ok: true });
   });
 
   socket.on("add_bot", (_data, cb) => {
@@ -685,17 +885,15 @@ io.of("/rank-bj").on("connection", (socket) => {
     const sess = rankBjSessions.get(socket.id);
     if (!sess) return;
     rankBjSessions.delete(socket.id);
-    const room = rankBj.getRoom(sess.roomCode);
-    if (!room) return;
     const stillHere = [...rankBjSessions.values()].some(
       (s) => s.roomCode === sess.roomCode && s.playerId === sess.playerId
     );
     if (stillHere) return;
-    const updated = rankBj.leaveRoom(room, sess.playerId);
-    if (updated) {
-      rankBj.setConnected(updated, sess.playerId, false);
-      emitRankBj(updated);
-    }
+    const room = rankBj.getRoom(sess.roomCode);
+    if (!room) return;
+    rankBj.setConnected(room, sess.playerId, false);
+    emitRankBj(room);
+    rankBjGrace.schedule(sess.roomCode, sess.playerId);
   });
 });
 
