@@ -109,6 +109,7 @@ export function createRoom(name, avatar) {
     draw1NeededGm: false,
     pendingDraw2: false,
     sameTopicDraw2: false,
+    topicLoading: null,
   };
   room.players.set(
     playerId,
@@ -143,6 +144,7 @@ export function createFromParty(partySnap) {
     draw1NeededGm: false,
     pendingDraw2: false,
     sameTopicDraw2: false,
+    topicLoading: null,
     partyOwned: true,
   };
 
@@ -291,6 +293,7 @@ function resetHands(room, { keepTopic = false } = {}) {
   room.draw1NeededGm = false;
   room.pendingDraw2 = false;
   room.sameTopicDraw2 = false;
+  room.topicLoading = null;
   if (!keepTopic) room.currentTopic = null;
 }
 
@@ -400,6 +403,7 @@ export function startGame(room, hostId) {
 export function refreshTopics(room, hostId) {
   if (!requireHost(room, hostId)) return { error: "主催者のみ" };
   if (room.playStep !== "pick_topic") return { error: "今はお題選びではありません" };
+  if (room.topicLoading) return { error: "お題を読み込み中です" };
   refillTopics(room);
   return { ok: true };
 }
@@ -407,6 +411,7 @@ export function refreshTopics(room, hostId) {
 export async function searchTopics(room, hostId, q) {
   if (!requireHost(room, hostId)) return { error: "主催者のみ" };
   if (room.playStep !== "pick_topic") return { error: "今はお題選びではありません" };
+  if (room.topicLoading) return { error: "お題を読み込み中です" };
   const found = await searchRankings(q);
   const played = new Set(playedSlugsFor(room.code));
   const filtered = found.filter((c) => !played.has(c.slug));
@@ -418,6 +423,22 @@ export async function searchTopics(room, hostId, q) {
     if (!room.shownChoiceSlugs.includes(c.slug)) room.shownChoiceSlugs.push(c.slug);
   }
   return { ok: true };
+}
+
+export function beginPickTopic(room, hostId, slug) {
+  if (!requireHost(room, hostId)) return { error: "主催者のみ" };
+  if (room.playStep !== "pick_topic") return { error: "今はお題選びではありません" };
+  if (room.topicLoading) return { error: "お題を読み込み中です" };
+  const s = String(slug || "").trim();
+  if (!s) return { error: "お題を選んでください" };
+  const entry =
+    getCatalogEntry(s) || room.topicChoices.find((c) => c.slug === s);
+  room.topicLoading = { slug: s, title: entry?.title || s };
+  return { ok: true };
+}
+
+export function clearTopicLoading(room) {
+  if (room) room.topicLoading = null;
 }
 
 export async function pickTopic(room, hostId, slug) {
@@ -440,6 +461,7 @@ export async function pickTopic(room, hostId, slug) {
     url: `https://ranking.net/rankings/${slug}`,
     items: data.items,
   };
+  room.topicLoading = null;
   if (forDraw2) {
     room.pendingDraw2 = false;
     room.sameTopicDraw2 = false;
@@ -546,12 +568,14 @@ export async function submitAnswer(room, playerId, text) {
     maybeAdvance(room);
     return { ok: true, auto: true };
   }
+  const candidates = result.candidates?.length
+    ? result.candidates
+    : suggestCandidates(answer, room.currentTopic.items, 15);
   room.judgeQueue.push({
     playerId,
     text: answer,
-    candidates: result.candidates?.length
-      ? result.candidates
-      : suggestCandidates(answer, room.currentTopic.items, 15),
+    candidates,
+    showAll: !candidates.length,
   });
   p.actedThisDraw = true;
   maybeAdvance(room);
@@ -573,7 +597,49 @@ export function stand(room, playerId) {
   return { ok: true };
 }
 
-export function gmConfirm(room, hostId, { itemKey, miss } = {}) {
+function itemKeyOf(it) {
+  return `${it.rank}:${it.name}`;
+}
+
+function keepDraw1CardsOnly(room) {
+  for (const p of room.players.values()) {
+    p.cards = (p.cards || []).slice(0, 1);
+    p.total = p.cards.reduce((s, c) => s + (c.rank || 0), 0);
+    p.busted = p.total > 21 || !!p.cards[0]?.bust;
+    p.stood = p.busted || p.total === 21;
+    p.actedThisDraw = false;
+    p._rawAnswer = "";
+  }
+}
+
+function startTopicPick(room, extraExclude = []) {
+  room.playStep = "pick_topic";
+  room.currentTopic = null;
+  room.judgeQueue = [];
+  room.topicLoading = null;
+  room.dealRevealed = false;
+  refillTopics(room, extraExclude);
+}
+
+function abandonCurrentTopic(room) {
+  const oldSlug = room.currentTopic?.slug;
+  if (room.draw === 2) {
+    keepDraw1CardsOnly(room);
+    room.pendingDraw2 = true;
+    room.sameTopicDraw2 = false;
+    startTopicPick(room, [oldSlug]);
+    return;
+  }
+  resetHands(room);
+  room.phase = "playing";
+  startTopicPick(room, [oldSlug]);
+}
+
+export function gmConfirm(
+  room,
+  hostId,
+  { itemKey, miss, fromAll, notInCandidates, changeTopic } = {}
+) {
   if (!requireHost(room, hostId)) return { error: "主催者のみ" };
   if (room.playStep !== "gm_judge") return { error: "今は判定ではありません" };
   const job = room.judgeQueue[0];
@@ -584,18 +650,37 @@ export function gmConfirm(room, hostId, { itemKey, miss } = {}) {
     maybeAdvance(room);
     return { ok: true };
   }
+  if (notInCandidates) {
+    job.showAll = true;
+    return { ok: true };
+  }
+  if (changeTopic) {
+    if (!job.showAll) return { error: "まず候補を確認してね" };
+    abandonCurrentTopic(room);
+    return { ok: true };
+  }
   if (miss) {
+    if (!job.showAll) return { error: "まず候補を確認してね" };
     applyCard(room, p, { rank: MISS_RANK, name: "該当なし" }, { miss: true });
   } else {
     const item = room.currentTopic.items.find(
-      (it) => `${it.rank}:${it.name}` === itemKey
+      (it) => itemKeyOf(it) === itemKey
     );
     if (!item) return { error: "候補を選んでください" };
     if (isBanned(room, item)) {
       return { error: "1回目に出た項目は2回目使えません" };
     }
-    applyCard(room, p, item);
-    if (room.draw === 1) room.draw1NeededGm = true;
+    const inCandidates = (job.candidates || []).some(
+      (it) => itemKeyOf(it) === itemKey
+    );
+    if (fromAll) {
+      if (!job.showAll) return { error: "まず候補を確認してね" };
+      applyCard(room, p, item);
+      if (room.draw === 1) room.draw1NeededGm = true;
+    } else {
+      if (!inCandidates) return { error: "候補を選んでください" };
+      applyCard(room, p, item);
+    }
   }
   room.judgeQueue.shift();
   maybeAdvance(room);
@@ -730,6 +815,7 @@ export function publicState(room, viewerId) {
     dealRevealed: room.dealRevealed,
     pickingDraw2: !!room.pendingDraw2,
     sameTopicDraw2: !!room.sameTopicDraw2,
+    topicLoading: room.topicLoading || null,
     you: viewerId,
     isHost: !!isHost,
     canAnswer: needAct.has(viewerId) && (room.playStep === "answering" || room.playStep === "gm_judge"),
@@ -746,7 +832,7 @@ export function publicState(room, viewerId) {
         }
       : null,
     gmItems:
-      isHost && room.currentTopic
+      isHost && room.currentTopic && pending?.showAll
         ? room.currentTopic.items.map((it) => ({
             rank: it.rank,
             name: it.name,
@@ -761,8 +847,9 @@ export function publicState(room, viewerId) {
           text:
             isHost || pending.playerId === viewerId ? pending.text : "？？？",
           queueLen: room.judgeQueue.length,
+          showAll: !!pending.showAll,
           candidates: isHost
-            ? pending.candidates.map((it) => ({
+            ? (pending.candidates || []).map((it) => ({
                 rank: it.rank,
                 name: it.name,
                 key: `${it.rank}:${it.name}`,

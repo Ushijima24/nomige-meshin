@@ -836,14 +836,24 @@ io.of("/rank-bj").on("connection", (socket) => {
     if (!sess) return cb?.({ ok: false, error: "未参加" });
     const room = rankBj.getRoom(sess.roomCode);
     if (!room) return cb?.({ ok: false, error: "ルームなし" });
+    const prep = rankBj.beginPickTopic(room, sess.playerId, slug);
+    if (prep.error) return cb?.({ ok: false, error: prep.error });
+    emitRankBj(room);
     try {
       const result = await rankBj.pickTopic(room, sess.playerId, slug);
-      if (result.error) return cb?.({ ok: false, error: result.error });
+      rankBj.clearTopicLoading(room);
+      if (result.error) {
+        cb?.({ ok: false, error: result.error });
+        emitRankBj(room);
+        return;
+      }
       cb?.({ ok: true });
       emitRankBj(room);
       kickRankBjBots(room);
     } catch (e) {
+      rankBj.clearTopicLoading(room);
       cb?.({ ok: false, error: e.message || "取得失敗" });
+      emitRankBj(room);
     }
   });
 

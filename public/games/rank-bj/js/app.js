@@ -20,7 +20,9 @@ const ui = {
   answer: "",
   searchQ: "",
   gmFilter: "",
+  gmPendingId: null,
   showResultList: false,
+  pickingTitle: "",
 };
 
 const params = new URLSearchParams(location.search);
@@ -137,6 +139,11 @@ socket.on("state", (state) => {
   }
   if (!state.canAnswer) ui.answer = "";
   if (state.phase !== "result") ui.showResultList = false;
+  if (state.pending?.playerId !== ui.gmPendingId) {
+    ui.gmFilter = "";
+    ui.gmPendingId = state.pending?.playerId;
+  }
+  if (!state.topicLoading) ui.pickingTitle = "";
   render();
 });
 
@@ -264,10 +271,10 @@ function rulesBodyHtml() {
     <div class="panel">
       <div class="section-title">1ラウンドの流れ</div>
       <ol class="rules">
-        <li>GMがお題（ランキング）を1つ選ぶ</li>
+        <li>GMがお題（ランキング）を1つ選ぶ。選んだあと、ランキングの取得に少し時間がかかることがあります</li>
         <li><strong>1回目</strong>：全員が同時に項目名を入力。順位がカードになる（例: 3位 → 3点）</li>
-        <li>AIが判定できないものは、主催者が自分も答えたあとでGMが順位を選ぶ</li>
-        <li><strong>2回目</strong>：全員自動で点数になったら同じお題。GMが順位を選んだら別お題（1回戦の点数は持ち越し）</li>
+        <li>自動判定できないときは、主催者がまず候補から選ぶ。候補になければ全ランキングを見て選ぶか、お題を変えられる</li>
+        <li><strong>2回目</strong>：候補で決まったら同じお題。全ランキングから選んだら別お題（1回戦の点数は持ち越し）</li>
         <li>勝敗と飲酒を見て、次のラウンド or ロビーへ</li>
       </ol>
     </div>
@@ -355,8 +362,26 @@ function renderLobby() {
   `;
 }
 
+function topicWaitHtml(title) {
+  const ttl = title || ui.pickingTitle || "";
+  return `<div class="wait-note" role="status">
+    <div class="wait-spin" aria-hidden="true"></div>
+    <p><strong>ランキングを読み込んでいます</strong></p>
+    <p>お題を選んだあと、反映まで少し時間がかかることがあります。そのまま待ってね。</p>
+    ${ttl ? `<p class="wait-title">${escapeHtml(ttl)}</p>` : ""}
+  </div>`;
+}
+
 function renderPickTopic() {
   const s = ui.state;
+  const loading = !!(s.topicLoading || (ui.busy && ui.pickingTitle));
+  const loadTitle = s.topicLoading?.title || ui.pickingTitle || "";
+  if (loading) {
+    return `<div class="panel">
+      <div class="section-title">${s.pickingDraw2 ? "2回戦のお題を読み込み中" : "お題を読み込み中"}</div>
+      ${topicWaitHtml(loadTitle)}
+    </div>`;
+  }
   if (!s.isHost) {
     return `<div class="panel">
       <div class="section-title">${s.pickingDraw2 ? "2回戦のお題選び中" : "お題選び中"}</div>
@@ -365,6 +390,7 @@ function renderPickTopic() {
           ? "GMが2回戦の別お題を選んでいます。1回戦の点数はそのまま持ち越しです。"
           : "GMがランキングを選んでいます。決まったら全員で同時に答えます。"
       }</p>
+      <p class="sub" style="margin:0">お題を選んだあと、ランキングの取得に少し時間がかかることがあります。</p>
     </div>`;
   }
   return `<div class="panel">
@@ -373,9 +399,10 @@ function renderPickTopic() {
     }</div>
     <p class="sub" style="margin-top:0">${
       s.pickingDraw2
-        ? "GMが順位を選んだので、2回戦は別のお題です。5件から選ぶか、検索・更新してね。"
+        ? "GMが全ランキングから選んだので、2回戦は別のお題です。5件から選ぶか、検索・更新してね。"
         : "5件から選ぶか、検索・更新してね。"
     }</p>
+    <p class="sub" style="margin-top:0">お題を選んだあと、ランキングの取得に少し時間がかかることがあります。</p>
     <input type="text" id="search-q" value="${escapeHtml(ui.searchQ)}" placeholder="例: ミスチル　動物園　卓球" />
     <div class="row" style="margin-bottom:10px">
       <button class="btn ghost" id="search-topics" ${ui.busy ? "disabled" : ""}>検索</button>
@@ -446,26 +473,43 @@ function renderJudge() {
   const waiting = renderAnswering();
   if (!s.isHost) return waiting;
   const cand = s.pending?.candidates || [];
+  const showAll = !!s.pending?.showAll;
   return `${topicPanel()}<div class="panel">
-    <div class="section-title">候補（全順位から絞り込み・残り ${s.pending?.queueLen || 0}）</div>
+    <div class="section-title">候補から選ぶ（残り ${s.pending?.queueLen || 0}）</div>
     <p class="sub" style="margin-top:0">${escapeHtml(s.pending?.playerName || "")}：「${escapeHtml(s.pending?.text || "")}」</p>
+    <p class="sub" style="margin-top:0">まずこの候補から判断してね。候補で決まったらお題はそのまま。</p>
     ${
       cand.length
         ? cand
             .map(
               (it) =>
                 `<button class="item-row ${it.banned ? "used" : ""}" data-confirm="${escapeHtml(it.key)}" ${
-                  it.banned ? "disabled" : ""
+                  it.banned || ui.busy ? "disabled" : ""
                 }>
                   <div class="rk">${it.rank}位</div>
                   <div>${escapeHtml(it.name)}${it.banned ? "（1回目）" : ""}</div>
                 </button>`
             )
             .join("")
-        : `<p class="sub">自動では見つかりませんでした。下の一覧から選ぶか、圏外にしてね。</p>`
+        : `<p class="sub">候補は見つかりませんでした。</p>`
     }
-    <button class="btn danger" id="miss" ${ui.busy ? "disabled" : ""}>該当なし（圏外=22）</button>
-  </div>${gmListPickHtml()}${
+    ${
+      showAll
+        ? ""
+        : `<button class="btn ghost" id="not-in-candidates" ${ui.busy ? "disabled" : ""}>この中にはない</button>`
+    }
+  </div>${
+    showAll
+      ? `<div class="panel">
+          <div class="section-title">全ランキングから選ぶ / お題を変える</div>
+          <p class="sub" style="margin-top:0">候補にないときは一覧から探すか、わからないお題なら変えてね。</p>
+          <div class="row" style="margin-bottom:10px">
+            <button class="btn" id="change-topic" ${ui.busy ? "disabled" : ""}>お題を変える</button>
+            <button class="btn danger" id="miss" ${ui.busy ? "disabled" : ""}>該当なし（圏外=22）</button>
+          </div>
+        </div>${gmListPickHtml()}`
+      : ""
+  }${
     s.canAnswer
       ? `<div class="panel">
           <div class="section-title">自分もまだ回答できる</div>
@@ -484,13 +528,13 @@ function gmListPickHtml() {
   const q = ui.gmFilter.trim();
   const shown = items.filter((it) => !q || it.name.includes(q) || String(it.rank) === q);
   return `<div class="panel">
-    <div class="section-title">一覧から選ぶ</div>
+    <div class="section-title">全ランキング</div>
     <input type="text" id="gm-filter" value="${escapeHtml(ui.gmFilter)}" placeholder="絞り込み" />
     <div class="gm-list">${shown
       .map(
         (it) =>
-          `<button class="item-row ${it.banned ? "used" : ""}" data-confirm="${escapeHtml(it.key)}" ${
-            it.banned ? "disabled" : ""
+          `<button class="item-row ${it.banned ? "used" : ""}" data-confirm-all="${escapeHtml(it.key)}" ${
+            it.banned || ui.busy ? "disabled" : ""
           }>
             <div class="rk">${it.rank}位</div>
             <div>${escapeHtml(it.name)}${it.banned ? "（1回目）" : ""}</div>
@@ -697,12 +741,22 @@ app.addEventListener("click", (e) => {
     ui.searchQ = document.getElementById("search-q")?.value || "";
     return emit("search_topics", { q: ui.searchQ });
   }
-  if (t.dataset.pick) return emit("pick_topic", { slug: t.dataset.pick });
+  if (t.dataset.pick) {
+    ui.pickingTitle = t.querySelector(".ttl")?.textContent || "";
+    return emit("pick_topic", { slug: t.dataset.pick }).finally(() => {
+      ui.pickingTitle = "";
+    });
+  }
   if (t.id === "submit-answer") {
     ui.answer = document.getElementById("answer")?.value || "";
     return emit("submit_answer", { text: ui.answer });
   }
+  if (t.dataset.confirmAll) {
+    return emit("gm_confirm", { itemKey: t.dataset.confirmAll, fromAll: true });
+  }
   if (t.dataset.confirm) return emit("gm_confirm", { itemKey: t.dataset.confirm });
+  if (t.id === "not-in-candidates") return emit("gm_confirm", { notInCandidates: true });
+  if (t.id === "change-topic") return emit("gm_confirm", { changeTopic: true });
   if (t.id === "miss") return emit("gm_confirm", { miss: true });
   if (t.id === "stand") return emit("stand");
   if (t.id === "next-round") return emit("next_round");
