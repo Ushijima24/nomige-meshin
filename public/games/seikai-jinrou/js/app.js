@@ -210,9 +210,9 @@ function rulesBodyHtml() {
         <li>主催者がお題を<strong>3つから選ぶ</strong>。役職は参加者から毎回ランダム。人狼だけ自分の役が分かる</li>
         <li>お題が配られたら、主催者が<strong>タイマー開始</strong> → 1分で1人1回答</li>
         <li>人狼はベストアンサーになってはいけない</li>
-        <li>答えが全員バラバラなら、投票でベストアンサーを決める</li>
+        <li>答えが全員バラバラなら、投票でベストアンサーを決める（<strong>自分には投票できない</strong>）</li>
         <li>同じ答えの被りがあるときは、主催者がその回答をベストアンサーにする</li>
-        <li>ベストアンサー以外から人狼を投票。最多票が人狼なら人狼の負け（1杯）</li>
+        <li>ベストアンサー以外から人狼を投票（<strong>自分には投票できない</strong>）。最多票が人狼なら人狼の負け（1杯）</li>
         <li>同数トップなら、そこに入れてない人だけが再投票。それでも割れなければ主催者が追放する人を決める</li>
         <li>当てられなかったら、ベストアンサーでも人狼指名でもない市民だけが飲む</li>
       </ol>
@@ -443,9 +443,9 @@ function renderVoteBa() {
       ${
         s.hasVoted
           ? `<p class="wait">投票済み！ほかの人を待ってるよ</p>`
-          : `<p class="host-tip">一番お題に沿っている回答を選んでね</p>
+          : `<p class="host-tip">一番お題に沿っている回答を選んでね<br/>（自分には投票できない）</p>
              <div class="pick-grid">${s.players
-               .filter((p) => p.connected)
+               .filter((p) => p.connected && p.id !== s.you?.id)
                .map((p) => {
                  const g = (s.groups || []).find((x) => x.members.some((m) => m.id === p.id));
                  return pickCardHtml({
@@ -502,8 +502,9 @@ function renderVoteWolf() {
       ? `<p class="wait">同数トップに入れた票はそのまま。再投票を待ってるよ</p>`
       : `<p class="wait">投票済み！ほかの人を待ってるよ</p>`;
   } else if (stage === "runoff") {
-    body = `<p class="host-tip">同数トップ: ${escapeHtml(tiedNames)}<br/>ここに入れてない人だけ、この中から再投票</p>
+    body = `<p class="host-tip">同数トップ: ${escapeHtml(tiedNames)}<br/>ここに入れてない人だけ、この中から再投票（自分には投票できない）</p>
       <div class="pick-grid">${(s.wolfCandidates || [])
+        .filter((p) => p.id !== s.you?.id)
         .map((p) =>
           pickCardHtml({
             id: p.id,
@@ -515,8 +516,9 @@ function renderVoteWolf() {
         .join("")}</div>`;
   } else {
     body = `<p class="ba-note">ベストアンサー: 「${escapeHtml(s.bestAnswer?.label || "")}」${ba ? `（${escapeHtml(ba)}）` : ""}</p>
-      <p class="vote-lead">選ばれなかった人から<br/>怪しい人を投票して</p>
+      <p class="vote-lead">選ばれなかった人から<br/>怪しい人を投票して<br/><span class="vote-lead-sub">（自分には投票できない）</span></p>
       <div class="pick-grid">${(s.wolfCandidates || [])
+        .filter((p) => p.id !== s.you?.id)
         .map((p) =>
           pickCardHtml({
             id: p.id,

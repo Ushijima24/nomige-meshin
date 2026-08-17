@@ -730,6 +730,7 @@ export function hostPickAccused(room, playerId, targetId) {
 export function castVote(room, voterId, targetId) {
   if (!room.players.has(voterId)) return { error: "参加者ではありません" };
   if (!room.players.has(targetId)) return { error: "プレイヤー不明" };
+  if (voterId === targetId) return { error: "自分には投票できないよ" };
 
   if (room.phase === "vote_ba") {
     if (room.baVotes.has(voterId)) return { error: "すでに投票済み" };
@@ -789,7 +790,9 @@ export function voteAsBot(room, botId) {
   if (!bot?.isBot) return { error: "botではない" };
   if (room.phase === "vote_ba") {
     if (room.baVotes.has(botId)) return { ok: true, skipped: true };
-    const candidates = connectedPlayers(room).map((p) => p.id);
+    const candidates = connectedPlayers(room)
+      .map((p) => p.id)
+      .filter((id) => id !== botId);
     if (!candidates.length) return { error: "候補なし" };
     return castVote(
       room,
@@ -803,9 +806,9 @@ export function voteAsBot(room, botId) {
     const ba = new Set(room.bestAnswer?.playerIds || []);
     const pool =
       room.wolfVoteStage === "runoff"
-        ? room.wolfTiedIds
+        ? room.wolfTiedIds.filter((id) => id !== botId)
         : connectedPlayers(room)
-            .filter((p) => !ba.has(p.id))
+            .filter((p) => !ba.has(p.id) && p.id !== botId)
             .map((p) => p.id);
     if (!pool.length) return { error: "候補なし" };
     return castVote(room, botId, pool[(Math.random() * pool.length) | 0]);
