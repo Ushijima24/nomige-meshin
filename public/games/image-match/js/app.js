@@ -62,11 +62,28 @@ function clearSession() {
   localStorage.removeItem(SESSION_KEY);
 }
 function partyHomeUrl(code) {
-  return code ? `/?room=${encodeURIComponent(code)}` : "/";
+  const c = code || loadPartySession()?.code || ui.state?.code || ui.joinCode;
+  return c ? `/?room=${encodeURIComponent(c)}&pick=1` : "/";
 }
+function goBackToParty() {
+  const url = partyHomeUrl();
+  emit("back_to_party").finally(() => {
+    location.href = url;
+  });
+}
+if (hasPartySession() || loadSession()?.playerId) ui.view = "joining";
 function tryRejoin() {
   const sess = loadSession();
-  if (!sess?.code || !sess?.playerId) return;
+  if (!sess?.code || !sess?.playerId) {
+    if (ui.view === "joining") {
+      if (hasPartySession() || ui.joinCode) location.href = partyHomeUrl();
+      else {
+        ui.view = "home";
+        render();
+      }
+    }
+    return;
+  }
   socket.emit("rejoin", { code: sess.code, playerId: sess.playerId }, (res) => {
     if (res?.ok) {
       saveSession(res.code, res.playerId);
@@ -74,8 +91,8 @@ function tryRejoin() {
       return;
     }
     clearSession();
-    if (hasPartySession()) {
-      location.href = partyHomeUrl(loadPartySession()?.code);
+    if (hasPartySession() || ui.joinCode) {
+      location.href = partyHomeUrl(loadPartySession()?.code || ui.joinCode);
       return;
     }
     ui.state = null;
@@ -88,7 +105,7 @@ function tryRejoin() {
 }
 socket.on("connect", tryRejoin);
 socket.on("go_party", ({ code } = {}) => {
-  location.href = partyHomeUrl(code || loadPartySession()?.code || ui.state?.code);
+  location.href = partyHomeUrl(code);
 });
 socket.on("kicked", ({ message } = {}) => {
   clearSession();
@@ -248,15 +265,8 @@ function rulesBtnHtml() {
   </div>`;
 }
 
-function renderRules() {
+function rulesBodyHtml() {
   return `
-  <div class="screen">
-    <p style="margin:0 0 8px"><button type="button" id="rules-back" style="background:none;border:none;color:var(--accent-2);font-weight:800;font-size:0.85rem;padding:0;cursor:pointer;font-family:inherit">← 戻る</button></p>
-    <div class="brand">
-      <div class="app-name">飲みゲーパーティー</div>
-      <div class="logo"><span>遊び方</span></div>
-      <p class="sub">画像で全員一致</p>
-    </div>
     <div class="panel">
       <p class="lbl" style="color:var(--accent);font-size:0.85rem;font-weight:800;margin:0 0 8px">このゲームは何？</p>
       <p style="margin:0;line-height:1.55;font-weight:700;font-size:0.92rem">写真の一部が隠されたお題を見て、みんなで答えを書きます。同じ答えの人同士がグループになり、<strong style="color:var(--accent)">一番人数が少ないグループ（少数派）が罰杯</strong>です。</p>
@@ -285,9 +295,20 @@ function renderRules() {
         <li>主催者だけがグループまとめと次の問題へ進める</li>
         <li>同人数の少数派が複数あるときは投票などで決まる場合あり</li>
         <li>別アプリを開いても、同じブラウザなら戻ってこれる</li>
-        <li>ロビーでは主催者がメンバー削除できる</li>
       </ul>
+    </div>`;
+}
+
+function renderRules() {
+  return `
+  <div class="screen">
+    <p style="margin:0 0 8px"><button type="button" id="rules-back" style="background:none;border:none;color:var(--accent-2);font-weight:800;font-size:0.85rem;padding:0;cursor:pointer;font-family:inherit">← 戻る</button></p>
+    <div class="brand">
+      <div class="app-name">飲みゲーパーティー</div>
+      <div class="logo"><span>遊び方</span></div>
+      <p class="sub">画像で全員一致</p>
     </div>
+    ${rulesBodyHtml()}
     <div class="btn-row" style="margin-top:14px">
       <button type="button" class="btn btn-ghost" id="rules-back-bottom">戻る</button>
     </div>
@@ -356,48 +377,44 @@ function shareUrl() {
   return `${location.origin}${location.pathname}?room=${ui.state.code}`;
 }
 
+function renderJoining() {
+  return `
+  <div class="screen">
+    <div class="brand">
+      <div class="app-name">飲みゲーパーティー</div>
+      <div class="logo"><span>画像で全員一致</span></div>
+    </div>
+    <p class="wait">ゲームに入っています…</p>
+  </div>`;
+}
+
 function renderLobby() {
   const s = ui.state;
   const isHost = s.you?.isHost;
   return `
   <div class="screen">
-    ${rulesBtnHtml()}
     <div class="brand">
       <div class="app-name">飲みゲーパーティー</div>
       <div class="logo"><span>画像で全員一致</span></div>
     </div>
-    <div class="panel">
-      <p class="lbl" style="color:var(--muted);font-size:0.8rem;font-weight:700;margin-bottom:4px">参加者 ${s.players.length}/10</p>
-      ${playersHtml(s.players, { canRemove: isHost })}
+    <div class="btn-row" style="margin:0 0 18px">
       ${
         isHost
-          ? `<div class="bot-actions">
-              <button type="button" id="btn-add-bot" ${
-                s.players.length >= 10 || ui.busy ? "disabled" : ""
-              }>＋PC参加</button>
-            </div>`
-          : ""
+          ? `<button class="btn btn-primary" id="btn-start" ${
+              s.players.length < 2 || ui.busy ? "disabled" : ""
+            }>ゲーム開始</button>
+             <button class="btn btn-ghost" id="btn-party" ${ui.busy ? "disabled" : ""}>ゲーム選択に戻る</button>`
+          : `<p class="wait">主催者の開始待ち…</p>
+             ${
+               hasPartySession()
+                 ? `<p class="wait">主催者がゲーム選択に戻すまで待ってね</p>`
+                 : ""
+             }`
       }
-      ${ui.error ? `<p class="err">${escapeHtml(ui.error)}</p>` : ""}
-      ${
-        isHost
-          ? `<div class="btn-row">
-              <button class="btn btn-primary" id="btn-start" ${
-                s.players.length < 2 || ui.busy ? "disabled" : ""
-              }>ゲーム開始</button>
-            </div>`
-          : `<p class="wait">主催者の開始待ち…</p>`
-      }
-      <div class="btn-row" style="margin-top:12px">
-        ${
-          isHost
-            ? `<button class="btn btn-ghost" id="btn-party" ${ui.busy ? "disabled" : ""}>ゲーム選択に戻る</button>`
-            : hasPartySession()
-              ? `<p class="wait">主催者がゲーム選択に戻すまで待ってね</p>`
-              : ""
-        }
-      </div>
     </div>
+    ${ui.error ? `<p class="err">${escapeHtml(ui.error)}</p>` : ""}
+    <p class="lbl" style="color:var(--accent);font-size:0.95rem;font-weight:800;margin:0 0 10px">遊び方</p>
+    ${rulesBodyHtml()}
   </div>`;
 }
 
@@ -622,6 +639,7 @@ function renderDone() {
 function render() {
   let html = "";
   if (ui.view === "rules") html = renderRules();
+  else if (ui.view === "joining") html = renderJoining();
   else if (ui.view === "home" || !ui.state) html = renderHome();
   else if (ui.state.phase === "lobby") html = renderLobby();
   else if (ui.state.phase === "answering") html = renderAnswering();
@@ -857,11 +875,7 @@ function bindEvents() {
   }
   const partyBtn = document.getElementById("btn-party");
   if (partyBtn) {
-    partyBtn.addEventListener("click", () => {
-      if (confirm("ゲーム選択に戻りますか？累計杯数は持ち越されます。")) {
-        emit("back_to_party");
-      }
-    });
+    partyBtn.addEventListener("click", () => goBackToParty());
   }
 }
 

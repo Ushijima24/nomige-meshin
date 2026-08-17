@@ -93,6 +93,13 @@ input[type="text"] {
 .avatars button.on { border-color: var(--accent); }
 
 .row { display: flex; gap: 8px; flex-wrap: wrap; }
+.lobby-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 12px 0 20px;
+}
+.lobby-actions .btn { width: 100%; }
 .btn {
   appearance: none;
   border: none;

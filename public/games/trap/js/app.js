@@ -72,12 +72,31 @@ function clearSession() {
   localStorage.removeItem(SESSION_KEY);
 }
 function partyHomeUrl(code) {
-  return code ? `/?room=${encodeURIComponent(code)}` : "/";
+  const c = code || loadPartySession()?.code || ui.state?.code || ui.joinCode;
+  return c ? `/?room=${encodeURIComponent(c)}&pick=1` : "/";
 }
+
+function goBackToParty() {
+  const url = partyHomeUrl();
+  emit("back_to_party").finally(() => {
+    location.href = url;
+  });
+}
+
+if (hasPartySession() || loadSession()?.playerId) ui.view = "joining";
 
 function tryRejoin() {
   const sess = loadSession();
-  if (!sess?.code || !sess?.playerId) return;
+  if (!sess?.code || !sess?.playerId) {
+    if (ui.view === "joining") {
+      if (hasPartySession() || ui.joinCode) location.href = partyHomeUrl();
+      else {
+        ui.view = "home";
+        render();
+      }
+    }
+    return;
+  }
   socket.emit("rejoin", { code: sess.code, playerId: sess.playerId }, (res) => {
     if (res?.ok) {
       saveSession(res.code, res.playerId);
@@ -85,8 +104,8 @@ function tryRejoin() {
       return;
     }
     clearSession();
-    if (hasPartySession()) {
-      location.href = partyHomeUrl(loadPartySession()?.code);
+    if (hasPartySession() || ui.joinCode) {
+      location.href = partyHomeUrl(loadPartySession()?.code || ui.joinCode);
       return;
     }
     ui.state = null;
@@ -100,7 +119,7 @@ function tryRejoin() {
 
 socket.on("connect", tryRejoin);
 socket.on("go_party", ({ code } = {}) => {
-  location.href = partyHomeUrl(code || loadPartySession()?.code || ui.state?.code);
+  location.href = partyHomeUrl(code);
 });
 socket.on("kicked", ({ message } = {}) => {
   clearSession();
@@ -364,38 +383,38 @@ function partyReturnBtnHtml(id = "back-party") {
   }>ゲーム選択に戻る</button>`;
 }
 
-function renderLobby() {
-  const s = ui.state;
+function renderJoining() {
   return `
     <h1>トラップゲーム</h1>
-    <div class="rules-tabs" style="margin-bottom:12px">
-      <button type="button" class="rules-tab" data-open-rules="howto">遊び方</button>
-    </div>
-    <div class="panel">
-      <div class="section-title">参加者 ${s.players.length}/10</div>
-      ${playersHtml(s.players, { canRemove: s.isHost })}
+    <p class="sub">ゲームに入っています…</p>
+  `;
+}
+
+function renderLobby() {
+  const s = ui.state;
+  const tab = ui.rulesTab === "cards" ? "cards" : "howto";
+  return `
+    <h1>トラップゲーム</h1>
+    <div class="lobby-actions">
       ${
         s.isHost
-          ? `<div class="row" style="margin-top:12px">
-              <button class="btn ghost" id="add-bot" ${
-                ui.busy || s.players.length >= 10 ? "disabled" : ""
-              }>＋PC参加</button>
-              <button class="btn ghost" id="add-bots4" ${
-                ui.busy || s.players.length >= 10 ? "disabled" : ""
-              }>PCを4人追加</button>
-            </div>`
-          : ""
+          ? `<button class="btn" id="start" ${
+              ui.busy || s.players.length < 2 ? "disabled" : ""
+            }>ゲーム開始</button>
+             <button class="btn ghost" id="back-party-lobby" ${
+               ui.busy ? "disabled" : ""
+             }>ゲーム選択に戻る</button>`
+          : `<p class="sub">主催者の開始待ち…</p>
+             ${
+               hasPartySession()
+                 ? `<p class="sub">主催者がゲーム選択に戻すまで待ってね</p>`
+                 : ""
+             }`
       }
+      ${ui.error ? `<div class="error">${escapeHtml(ui.error)}</div>` : ""}
     </div>
-    ${
-      s.isHost
-        ? `<button class="btn" id="start" ${
-            ui.busy || s.players.length < 2 ? "disabled" : ""
-          }>ゲーム開始</button>`
-        : `<p class="sub">主催者の開始待ち…</p>`
-    }
-    ${partyReturnBtnHtml("back-party-lobby")}
-    ${ui.error ? `<div class="error">${escapeHtml(ui.error)}</div>` : ""}
+    ${renderRulesTabs()}
+    ${tab === "cards" ? renderCardsTab() : renderHowtoTab()}
   `;
 }
 
@@ -967,6 +986,7 @@ function renderResult() {
 
 function render() {
   if (ui.view === "rules") app.innerHTML = renderRules();
+  else if (ui.view === "joining") app.innerHTML = renderJoining();
   else if (ui.view === "home") app.innerHTML = renderHome();
   else if (ui.view === "lobby") app.innerHTML = renderLobby();
   else if (ui.state?.phase === "result") app.innerHTML = renderResult();
@@ -1123,11 +1143,7 @@ function bind() {
   });
   ["back-party", "back-party-lobby", "back-party-play", "back-party-result"].forEach(
     (id) => {
-      app.querySelector(`#${id}`)?.addEventListener("click", () => {
-        if (confirm("パーティーに戻りますか？累計杯数は持ち越されます。")) {
-          emit("back_to_party");
-        }
-      });
+      app.querySelector(`#${id}`)?.addEventListener("click", () => goBackToParty());
     }
   );
   app.querySelector("#lose")?.addEventListener("click", () => emit("admit_lose"));

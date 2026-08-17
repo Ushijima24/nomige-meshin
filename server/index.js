@@ -1063,7 +1063,14 @@ io.of("/party").on("connection", (socket) => {
       emitParty(result.room);
       if (result.room.phase === "in_game" && result.room.currentGame) {
         const g = party.PARTY_GAMES.find((x) => x.id === result.room.currentGame);
-        if (g) {
+        const gameExists =
+          (result.room.currentGame === "trap" && trap.getRoom(result.room.code)) ||
+          (result.room.currentGame === "image-match" && getRoom(result.room.code)) ||
+          (result.room.currentGame === "rank-bj" && rankBj.getRoom(result.room.code));
+        if (!gameExists) {
+          party.clearGame(result.room);
+          emitParty(result.room);
+        } else if (g) {
           socket.emit("enter_game", {
             game: g.id,
             path: g.path,

@@ -21,6 +21,7 @@ const ui = {
 
 const params = new URLSearchParams(location.search);
 if (params.get("room")) ui.joinCode = params.get("room").toUpperCase();
+let stayOnPicker = params.get("pick") === "1";
 
 function loadSession() {
   try {
@@ -29,6 +30,8 @@ function loadSession() {
     return null;
   }
 }
+
+if (loadSession()?.code && loadSession()?.playerId) ui.view = "joining";
 function saveSession(code, playerId) {
   if (code && playerId) {
     localStorage.setItem(SESSION_KEY, JSON.stringify({ code, playerId }));
@@ -54,7 +57,11 @@ function tryRejoin() {
   if (!sess?.code || !sess?.playerId) return;
   socket.emit("rejoin", { code: sess.code, playerId: sess.playerId }, (res) => {
     if (res?.ok) {
-      history.replaceState({}, "", `?room=${res.code}`);
+      history.replaceState(
+        {},
+        "",
+        stayOnPicker ? `?room=${res.code}&pick=1` : `?room=${res.code}`
+      );
       return;
     }
     clearSession();
@@ -70,8 +77,18 @@ socket.on("state", (state) => {
   ui.error = "";
   ui.view = "lobby";
   render();
+  if (!stayOnPicker) return;
+  if (state.isHost && state.phase === "in_game") {
+    emit("return_to_party");
+    return;
+  }
+  if (state.phase === "lobby") {
+    stayOnPicker = false;
+    history.replaceState({}, "", `?room=${state.code}`);
+  }
 });
 socket.on("enter_game", ({ path, code, playerId }) => {
+  if (stayOnPicker) return;
   saveSession(code, playerId);
   location.href = `${path}?room=${encodeURIComponent(code)}`;
 });
@@ -205,8 +222,20 @@ function renderLobby() {
   `;
 }
 
+function renderJoining() {
+  return `
+    <div class="brand">
+      <div class="name">NOMI GE PARTY</div>
+      <h1>パーティー</h1>
+      <p>部屋に入っています…</p>
+    </div>
+  `;
+}
+
 function render() {
-  app.innerHTML = ui.view === "lobby" && ui.state ? renderLobby() : renderHome();
+  if (ui.view === "lobby" && ui.state) app.innerHTML = renderLobby();
+  else if (ui.view === "joining") app.innerHTML = renderJoining();
+  else app.innerHTML = renderHome();
   bind();
 }
 
