@@ -21,6 +21,7 @@ const ui = {
   searchQ: "",
   gmFilter: "",
   gmPendingId: null,
+  forceShowAll: false,
   showResultList: false,
   pickingTitle: "",
   searching: false,
@@ -133,18 +134,22 @@ window.addEventListener("pageshow", () => {
 
 socket.on("state", (state) => {
   const prevStep = ui.state?.playStep;
+  const prevDraw = ui.state?.draw;
   ui.state = state;
   ui.error = "";
   if (ui.view !== "rules") {
     if (state.phase === "lobby") ui.view = "lobby";
     else ui.view = "game";
   }
-  if (!state.canAnswer) ui.answer = "";
+  // 回答不可、または1回目→2回目など回が変わったら入力欄を空にする
+  if (!state.canAnswer || state.draw !== prevDraw) ui.answer = "";
   if (state.phase !== "result") ui.showResultList = false;
   if (state.pending?.playerId !== ui.gmPendingId) {
     ui.gmFilter = "";
     ui.gmPendingId = state.pending?.playerId;
+    ui.forceShowAll = false;
   }
+  if (state.pending?.showAll) ui.forceShowAll = false;
   if (!state.topicLoading) ui.pickingTitle = "";
   if (state.playStep === "pick_topic" && prevStep !== "pick_topic") {
     ui.searchQ = "";
@@ -267,14 +272,6 @@ function rulesBodyHtml() {
       <p class="sub" style="margin:0;color:var(--text)">みんなのランキングの<strong>順位が点数</strong>になる知識ブラックジャックです。合計<strong>21</strong>を狙います。バーストや最下位になると飲みます。</p>
     </div>
     <div class="panel">
-      <div class="section-title">始め方</div>
-      <ol class="rules">
-        <li>誰か1人がルーム作成（その人が<strong>GM</strong>）</li>
-        <li>コードで参加。足りなければPC参加を追加</li>
-        <li>2人以上でGMがゲーム開始</li>
-      </ol>
-    </div>
-    <div class="panel">
       <div class="section-title">1ラウンドの流れ</div>
       <ol class="rules">
         <li>GMがお題（ランキング）を1つ選ぶ。選んだあと、ランキングの取得に少し時間がかかることがあります</li>
@@ -312,7 +309,7 @@ function renderHome() {
       hasPartySession()
         ? partyHomeUrl(loadPartySession()?.code || ui.state?.code)
         : "/"
-    }">← パーティー</a>
+    }">← ゲーム選択に戻る</a>
     <h1>ランキングBJ</h1>
     <p class="sub">みんランの順位がカード。21を狙う知識ブラックジャック。</p>
     ${rulesBtnHtml()}
@@ -481,7 +478,14 @@ function topicPanel() {
 function renderAnswering() {
   const s = ui.state;
   let body = topicPanel();
+  const pendingN = s.pending?.queueLen || 0;
   if (s.canAnswer) {
+    const matchHint =
+      s.isHost && pendingN
+        ? `<p class="sub" style="margin:8px 0 0;color:var(--accent,#c45)">判定待ちが ${pendingN}件あるよ。自分の答えを出したら、候補マッチしてね</p>`
+        : s.isHost
+          ? `<p class="sub" style="margin:8px 0 0">曖昧な答えは、あなたの回答後に候補マッチするよ</p>`
+          : "";
     body += `<div class="panel">
       <div class="section-title">${s.draw === 1 ? "1回目・名前を入力" : "2回目・もう一枚 or ステイ"}</div>
       <p class="sub" style="margin-top:0">${
@@ -491,6 +495,7 @@ function renderAnswering() {
             ? "同じお題でもう一つ答えるか、今の合計でステイ"
             : "別のお題でもう一つ答えるか、今の合計でステイ"
       }</p>
+      ${matchHint}
       <input type="text" id="answer" value="${escapeHtml(ui.answer)}" placeholder="例: シカマル" maxlength="40" />
       <div class="row">
         <button class="btn" id="submit-answer" ${ui.busy || !ui.answer.trim() ? "disabled" : ""}>決定</button>
@@ -502,7 +507,11 @@ function renderAnswering() {
       </div>
     </div>`;
   } else {
-    body += `<div class="panel"><p class="sub" style="margin:0">他の人の入力・判定待ち…</p></div>`;
+    const waitMsg =
+      pendingN > 0
+        ? "GMが候補マッチするまでお待ちください…"
+        : "他の人の入力・判定待ち…お待ちください";
+    body += `<div class="panel"><p class="sub" style="margin:0">${waitMsg}</p></div>`;
   }
   return body;
 }
@@ -512,7 +521,7 @@ function renderJudge() {
   const waiting = renderAnswering();
   if (!s.isHost) return waiting;
   const cand = s.pending?.candidates || [];
-  const showAll = !!s.pending?.showAll;
+  const showAll = !!s.pending?.showAll || ui.forceShowAll;
   return `${topicPanel()}<div class="panel">
     <div class="section-title">候補から選ぶ（残り ${s.pending?.queueLen || 0}）</div>
     <p class="sub" style="margin-top:0">${escapeHtml(s.pending?.playerName || "")}：「${escapeHtml(s.pending?.text || "")}」</p>
@@ -546,7 +555,11 @@ function renderJudge() {
             <button class="btn" id="change-topic" ${ui.busy ? "disabled" : ""}>お題を変える</button>
             <button class="btn danger" id="miss" ${ui.busy ? "disabled" : ""}>該当なし（圏外=22）</button>
           </div>
-        </div>${gmListPickHtml()}`
+        </div>${
+          s.gmItems?.length
+            ? gmListPickHtml()
+            : `<div class="panel"><p class="sub" style="margin:0">一覧を読み込み中…</p></div>`
+        }`
       : ""
   }${
     s.canAnswer
@@ -674,7 +687,7 @@ function renderGame() {
       hasPartySession()
         ? partyHomeUrl(loadPartySession()?.code || ui.state?.code)
         : "/"
-    }">← パーティー</a>
+    }">← ゲーム選択に戻る</a>
     <h1>ランキングBJ</h1>
     ${rulesBtnHtml()}
     <p class="sub">試合 ${s.match}　${
@@ -696,9 +709,9 @@ function renderGame() {
     ${drinkBoardHtml()}
     ${
       s.isHost
-        ? `<button class="btn ghost" id="to-party" ${ui.busy ? "disabled" : ""}>パーティーに戻る</button>`
+        ? `<button class="btn ghost" id="to-party" ${ui.busy ? "disabled" : ""}>ゲーム選択に戻る</button>`
         : hasPartySession()
-          ? `<p class="sub">主催者がパーティーに戻すまで待ってね</p>`
+          ? `<p class="sub">主催者がゲーム選択に戻すまで待ってね</p>`
           : ""
     }
     ${ui.error ? `<div class="error">${escapeHtml(ui.error)}</div>` : ""}
@@ -795,14 +808,29 @@ app.addEventListener("click", (e) => {
     });
   }
   if (t.id === "submit-answer") {
-    ui.answer = document.getElementById("answer")?.value || "";
-    return emit("submit_answer", { text: ui.answer });
+    const text = document.getElementById("answer")?.value || "";
+    ui.answer = text;
+    return emit("submit_answer", { text }).then((res) => {
+      if (res?.ok) {
+        ui.answer = "";
+        render();
+      }
+    });
   }
   if (t.dataset.confirmAll) {
     return emit("gm_confirm", { itemKey: t.dataset.confirmAll, fromAll: true });
   }
   if (t.dataset.confirm) return emit("gm_confirm", { itemKey: t.dataset.confirm });
-  if (t.id === "not-in-candidates") return emit("gm_confirm", { notInCandidates: true });
+  if (t.id === "not-in-candidates") {
+    ui.forceShowAll = true;
+    render();
+    return emit("gm_confirm", { notInCandidates: true }).then((res) => {
+      if (!res?.ok) {
+        ui.forceShowAll = false;
+        render();
+      }
+    });
+  }
   if (t.id === "change-topic") return emit("gm_confirm", { changeTopic: true });
   if (t.id === "miss") return emit("gm_confirm", { miss: true });
   if (t.id === "stand") return emit("stand");
@@ -845,7 +873,15 @@ app.addEventListener("keydown", (e) => {
   if (e.key !== "Enter") return;
   if (e.target.id === "answer") {
     e.preventDefault();
-    if (ui.answer.trim()) emit("submit_answer", { text: ui.answer });
+    const text = e.target.value || ui.answer;
+    if (!text.trim()) return;
+    ui.answer = text;
+    emit("submit_answer", { text }).then((res) => {
+      if (res?.ok) {
+        ui.answer = "";
+        render();
+      }
+    });
   }
   if (e.target.id === "search-q") {
     e.preventDefault();

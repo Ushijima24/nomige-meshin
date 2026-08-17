@@ -368,9 +368,9 @@ function backLinkHtml() {
   if (hasPartySession()) {
     return `<a class="back" href="${partyHomeUrl(
       loadPartySession()?.code || ui.state?.code
-    )}">← パーティー</a>`;
+    )}">← ゲーム選択に戻る</a>`;
   }
-  return `<a class="back" href="/">← パーティー</a>`;
+  return `<a class="back" href="/">← ゲーム選択に戻る</a>`;
 }
 
 function partyReturnBtnHtml(id = "back-party") {
@@ -883,7 +883,7 @@ function renderPlaying() {
                 : "試合を中止してロビーへ"
             }</button>
             ${partyReturnBtnHtml("back-party-play")}
-            <p class="sub" style="margin:8px 0 0">パーティーに戻ると累計は持ち越し。主催者のみ。</p>
+            <p class="sub" style="margin:8px 0 0">ゲーム選択に戻ると累計は持ち越し。主催者のみ。</p>
           </div>`
         : `<div class="panel" style="margin-top:28px">${partyReturnBtnHtml(
             "back-party-play"

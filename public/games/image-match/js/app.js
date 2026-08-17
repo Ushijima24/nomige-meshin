@@ -321,7 +321,7 @@ function renderHome() {
       hasPartySession()
         ? partyHomeUrl(loadPartySession()?.code || ui.state?.code)
         : "/"
-    }" style="color:var(--accent-2);font-weight:800;text-decoration:none;font-size:0.85rem">← パーティー</a></p>
+    }" style="color:var(--accent-2);font-weight:800;text-decoration:none;font-size:0.85rem">← ゲーム選択に戻る</a></p>
     <div class="brand">
       <div class="app-name">飲みゲーパーティー</div>
       <div class="logo"><span>画像で全員一致</span></div>
@@ -627,7 +627,7 @@ function renderDone() {
         s.you?.isHost
           ? `<div class="btn-row">
               <button class="btn btn-primary" id="btn-lobby" ${ui.busy ? "disabled" : ""}>ゲームロビーへ</button>
-              <button class="btn btn-ghost" id="btn-party" ${ui.busy ? "disabled" : ""}>パーティーに戻る</button>
+              <button class="btn btn-ghost" id="btn-party" ${ui.busy ? "disabled" : ""}>ゲーム選択に戻る</button>
             </div>`
           : `<p class="wait">主催者が戻すまで待ってね</p>`
       }

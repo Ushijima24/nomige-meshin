@@ -231,10 +231,10 @@ function rulesBodyHtml() {
 
 function partyBackHtml() {
   if (ui.state) {
-    return `<button type="button" class="linkish" id="btn-party">← パーティーに戻る</button>`;
+    return `<button type="button" class="linkish" id="btn-party">← ゲーム選択に戻る</button>`;
   }
   const href = hasPartySession() ? partyHomeUrl() : "/";
-  return `<a class="back" href="${href}">← パーティーに戻る</a>`;
+  return `<a class="back" href="${href}">← ゲーム選択に戻る</a>`;
 }
 
 function screenHeadHtml() {
@@ -294,9 +294,9 @@ function renderLobby() {
       ${
         isHost
           ? `<button class="btn" id="btn-start" ${s.players.length < 3 || ui.busy ? "disabled" : ""}>ゲーム開始（3人〜）</button>
-             <button class="btn ghost" id="btn-party" ${ui.busy ? "disabled" : ""}>パーティーに戻る</button>`
+             <button class="btn ghost" id="btn-party" ${ui.busy ? "disabled" : ""}>ゲーム選択に戻る</button>`
           : `<p class="wait">主催者の開始待ち…</p>
-             ${hasPartySession() ? `<p class="sub" style="margin:0;text-align:center">主催者がパーティーに戻すまで待ってね</p>` : ""}`
+             ${hasPartySession() ? `<p class="sub" style="margin:0;text-align:center">主催者がゲーム選択に戻すまで待ってね</p>` : ""}`
       }
       ${ui.error ? `<div class="error">${escapeHtml(ui.error)}</div>` : ""}
     </div>
