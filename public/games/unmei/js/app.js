@@ -1,4 +1,30 @@
 const AVATARS = ["🦊", "🐻", "🐱", "🐸", "🐼", "🐷", "🦁", "🐨", "🐵", "🐰", "🐯", "🐮", "🐶", "🐺", "🦝", "🐔", "🐧", "🦄", "🐙", "🦖", "👻", "🎃", "👽", "🤖"];
+const AVATAR_COLORS = {
+  "🦊": "#ff9a3d",
+  "🐻": "#d08a4a",
+  "🐱": "#ffd24a",
+  "🐸": "#6dff6a",
+  "🐼": "#f2f2f2",
+  "🐷": "#ff8fbf",
+  "🦁": "#ffc14d",
+  "🐨": "#9eb0c8",
+  "🐵": "#e89b5c",
+  "🐰": "#ffd0ea",
+  "🐯": "#ff7a2e",
+  "🐮": "#fff1c2",
+  "🐶": "#e8b86d",
+  "🐺": "#8aa0c0",
+  "🦝": "#c9b49a",
+  "🐔": "#ff5c5c",
+  "🐧": "#5ec8ff",
+  "🦄": "#d39bff",
+  "🐙": "#ff6ea8",
+  "🦖": "#4ee08a",
+  "👻": "#e6e6ff",
+  "🎃": "#ff9f2e",
+  "👽": "#7dffb0",
+  "🤖": "#7ecbff",
+};
 const socket = io("/unmei", {
   transports: ["websocket", "polling"],
   reconnection: true,
@@ -465,10 +491,7 @@ function genderClass(p) {
 
 function lineColor(fromId) {
   const p = playerById(fromId);
-  if (ui.state?.mode === "love") {
-    return p?.gender === "female" ? "#ff6ea8" : "#6ec8ff";
-  }
-  return "#ffe08a";
+  return AVATAR_COLORS[p?.avatar] || "#ffe08a";
 }
 
 function svgEl(name, attrs) {
@@ -612,8 +635,13 @@ function stampAt(midX, midY, ok) {
   const fx = document.getElementById("fx");
   if (!fx) return;
   const el = document.createElement("div");
-  el.className = `stamp ${ok ? "ok" : "ng"}`;
-  el.textContent = ok ? "成立" : "不成立";
+  const loveOk = ok && ui.state?.mode === "love";
+  el.className = `stamp ${ok ? "ok" : "ng"}${loveOk ? " love-ok" : ""}`;
+  if (loveOk) {
+    el.innerHTML = `<span class="heart-bg" aria-hidden="true">♥ ♥ ♥ ♥ ♥ ♥ ♥ ♥ ♥ ♥ ♥ ♥</span><span class="stamp-txt">成立</span>`;
+  } else {
+    el.textContent = ok ? "成立" : "不成立";
+  }
   el.style.left = `${midX}%`;
   el.style.top = `${midY}%`;
   fx.appendChild(el);
