@@ -10,6 +10,7 @@ const app = document.getElementById("app");
 
 const ui = {
   view: "home",
+  rulesBack: "home",
   name: localStorage.getItem("rankbj_name") || "",
   avatar: localStorage.getItem("rankbj_avatar") || AVATARS[0],
   joinCode: "",
@@ -80,8 +81,10 @@ window.addEventListener("pageshow", () => {
 socket.on("state", (state) => {
   ui.state = state;
   ui.error = "";
-  if (state.phase === "lobby") ui.view = "lobby";
-  else ui.view = "game";
+  if (ui.view !== "rules") {
+    if (state.phase === "lobby") ui.view = "lobby";
+    else ui.view = "game";
+  }
   if (!state.canAnswer) ui.answer = "";
   if (state.phase !== "result") ui.showResultList = false;
   render();
@@ -183,11 +186,71 @@ function playersHtml(players, { canRemove = false } = {}) {
     .join("")}</div>`;
 }
 
+function openRules(back = "home") {
+  ui.rulesBack = back;
+  ui.view = "rules";
+  render();
+}
+
+function rulesBtnHtml() {
+  return `<button type="button" class="btn ghost" id="open-rules" style="margin-bottom:14px">📖 遊び方</button>`;
+}
+
+function renderRules() {
+  return `
+    <button type="button" class="back linkish" id="rules-back">← 戻る</button>
+    <h1>遊び方</h1>
+    <p class="sub">ランキングBJ — はじめてでもわかる説明</p>
+    <div class="panel">
+      <div class="section-title">このゲームは何？</div>
+      <p class="sub" style="margin:0;color:var(--text)">みんなのランキングの<strong>順位が点数</strong>になる知識ブラックジャックです。合計<strong>21</strong>を狙います。バーストや最下位になると飲みます。</p>
+    </div>
+    <div class="panel">
+      <div class="section-title">始め方</div>
+      <ol class="rules">
+        <li>誰か1人がルーム作成（その人が<strong>GM</strong>）</li>
+        <li>コードで参加。足りなければPC参加を追加</li>
+        <li>2人以上でGMがゲーム開始</li>
+      </ol>
+    </div>
+    <div class="panel">
+      <div class="section-title">1ラウンドの流れ</div>
+      <ol class="rules">
+        <li>GMがお題（ランキング）を1つ選ぶ。そのラウンドは全員同じお題</li>
+        <li><strong>1回目</strong>：全員が同時に項目名を入力。順位がカードになる（例: 3位 → 3点）</li>
+        <li>GMが回答を確認（合っていれば順位、違えば圏外など）</li>
+        <li><strong>2回目</strong>：同じお題でもう1枚引くか、ステイ。1回目に出た項目は使えない</li>
+        <li>勝敗と飲酒を見て、次のラウンド or ロビーへ</li>
+      </ol>
+    </div>
+    <div class="panel">
+      <div class="section-title">勝ち負け・飲む人</div>
+      <ul class="rules">
+        <li>合計<strong>21ぴったり</strong>が理想</li>
+        <li><strong>22位以上</strong>、または合計<strong>22以上</strong>はバースト（順位は見える）</li>
+        <li>バーストした人が飲む。誰もバーストしていなければ<strong>合計が最小</strong>の人が飲む</li>
+        <li>同点なら該当者みんな。誰かが21のとき、敗者は<strong>2杯</strong></li>
+      </ul>
+      <p class="credit">データ出典: <a href="https://ranking.net/" target="_blank" rel="noopener">みんなのランキング</a></p>
+    </div>
+    <div class="panel">
+      <div class="section-title">覚えておくと便利</div>
+      <ul class="rules">
+        <li>試合中もいつでも「遊び方」からこの説明を開ける</li>
+        <li>別アプリを開いても、同じブラウザなら戻ってこれる</li>
+        <li>ロビーではGMがメンバー削除できる</li>
+      </ul>
+    </div>
+    <button class="btn ghost" id="rules-back-bottom">戻る</button>
+  `;
+}
+
 function renderHome() {
   return `
     <a class="back" href="/">← ゲーム選択</a>
     <h1>ランキングBJ</h1>
     <p class="sub">みんランの順位がカード。21を狙う知識ブラックジャック。</p>
+    ${rulesBtnHtml()}
     <div class="panel">
       <label>なまえ</label>
       <input type="text" id="name" maxlength="12" value="${escapeHtml(ui.name)}" placeholder="例: たろう" />
@@ -205,18 +268,12 @@ function renderHome() {
       ${ui.error ? `<div class="error">${escapeHtml(ui.error)}</div>` : ""}
     </div>
     <div class="panel">
-      <div class="section-title">遊び方（くわしく）</div>
-      <ol class="rules">
-        <li>作成者（GM）がお題を1つ選ぶ。そのラウンドは全員同じお題</li>
-        <li><strong>1回目</strong>：全員が同時に「項目名」を入力。みんランの順位がカードになる（例: 3位 → 3点）</li>
-        <li><strong>2回目</strong>：同じお題でもう1枚引くか、ステイ。1回目に出た項目は使えない</li>
-        <li>カードの点数は順位。合計が<strong>21ぴったり</strong>が理想</li>
-        <li><strong>22位以上</strong>、または合計が<strong>22以上</strong>はバースト（順位は見える）</li>
-        <li>バーストした人が飲む。誰もバーストしていなければ<strong>合計が最小</strong>の人が飲む</li>
-        <li>同点なら該当者みんな。誰かが21のとき、敗者は<strong>2杯</strong></li>
-        <li>GMは回答の正誤確認（圏外にするなど）を行う</li>
-      </ol>
-      <p class="credit">データ出典: <a href="https://ranking.net/" target="_blank" rel="noopener">みんなのランキング</a></p>
+      <div class="section-title">ざっくり</div>
+      <ul class="rules">
+        <li>順位が点数。21を目指す</li>
+        <li>バーストや最下位が飲む</li>
+        <li>くわしくは上の「遊び方」へ（試合中も見れる）</li>
+      </ul>
     </div>`;
 }
 
@@ -225,6 +282,7 @@ function renderLobby() {
   return `
     <a class="back" href="/">← ゲーム選択</a>
     <h1>ランキングBJ</h1>
+    ${rulesBtnHtml()}
     <div class="panel">
       <div class="section-title">ルームコード</div>
       <div class="code-big">${escapeHtml(s.code)}</div>
@@ -474,6 +532,7 @@ function renderGame() {
   return `
     <a class="back" href="/">← ゲーム選択</a>
     <h1>ランキングBJ</h1>
+    ${rulesBtnHtml()}
     <p class="sub">試合 ${s.match}　${s.draw ? `${s.draw}回目 / 2` : "お題選び"}　コード ${escapeHtml(s.code)}</p>
     <div class="panel">
       <div class="section-title">みんなの手札</div>
@@ -490,7 +549,8 @@ function renderGame() {
 }
 
 function render() {
-  if (ui.view === "home") app.innerHTML = renderHome();
+  if (ui.view === "rules") app.innerHTML = renderRules();
+  else if (ui.view === "home") app.innerHTML = renderHome();
   else if (ui.view === "lobby") app.innerHTML = renderLobby();
   else app.innerHTML = renderGame();
 }
@@ -498,6 +558,21 @@ function render() {
 app.addEventListener("click", (e) => {
   const t = e.target.closest("button");
   if (!t) return;
+  if (t.id === "open-rules") {
+    openRules(
+      ui.view === "home" ? "home" : ui.view === "lobby" ? "lobby" : "game"
+    );
+    return;
+  }
+  if (t.id === "rules-back" || t.id === "rules-back-bottom") {
+    if (ui.rulesBack === "lobby" && ui.state?.phase === "lobby") ui.view = "lobby";
+    else if (ui.rulesBack === "game" && ui.state) ui.view = "game";
+    else if (ui.state?.phase === "lobby") ui.view = "lobby";
+    else if (ui.state) ui.view = "game";
+    else ui.view = "home";
+    render();
+    return;
+  }
   if (t.dataset.av) {
     ui.avatar = t.dataset.av;
     render();

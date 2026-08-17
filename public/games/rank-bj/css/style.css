@@ -35,6 +35,19 @@ a.back {
   font-weight: 700;
   font-size: 0.85rem;
 }
+button.back.linkish {
+  display: inline-block;
+  background: none;
+  border: none;
+  color: var(--muted);
+  font: inherit;
+  font-weight: 800;
+  font-size: 0.9rem;
+  padding: 0;
+  margin: 0 0 8px;
+  cursor: pointer;
+}
+button.back.linkish:hover { color: var(--accent2); }
 h1 {
   margin: 10px 0 4px;
   font-size: 1.7rem;

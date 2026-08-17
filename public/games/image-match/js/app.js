@@ -10,7 +10,8 @@ const socket = io({
 const app = document.getElementById("app");
 
 const ui = {
-  view: "home", // home | lobby | game
+  view: "home", // home | lobby | game | rules
+  rulesBack: "home",
   name: localStorage.getItem("meshin_name") || "",
   avatar: localStorage.getItem("meshin_avatar") || AVATARS[0],
   joinCode: "",
@@ -81,9 +82,10 @@ window.addEventListener("pageshow", () => {
 socket.on("state", (state) => {
   ui.state = state;
   ui.error = "";
-  if (state.phase === "lobby") ui.view = "lobby";
-  else if (state.phase === "done") ui.view = "game";
-  else ui.view = "game";
+  if (ui.view !== "rules") {
+    if (state.phase === "lobby") ui.view = "lobby";
+    else ui.view = "game";
+  }
 
   if (state.phase === "answering" && !state.hasAnswered) {
     // keep typed answer
@@ -201,6 +203,64 @@ function drinkBoardHtml(board) {
   return `<div class="drink-board"><div class="drink-board-title">🍺 累計罰杯</div>${rows}</div>`;
 }
 
+function openRules(back = "home") {
+  ui.rulesBack = back;
+  ui.view = "rules";
+  render();
+}
+
+function rulesBtnHtml() {
+  return `<div class="btn-row" style="margin:0 0 12px">
+    <button type="button" class="btn btn-ghost" id="open-rules">📖 遊び方</button>
+  </div>`;
+}
+
+function renderRules() {
+  return `
+  <div class="screen">
+    <p style="margin:0 0 8px"><button type="button" id="rules-back" style="background:none;border:none;color:var(--accent-2);font-weight:800;font-size:0.85rem;padding:0;cursor:pointer;font-family:inherit">← 戻る</button></p>
+    <div class="brand">
+      <div class="app-name">飲みゲーパーティー</div>
+      <div class="logo"><span>遊び方</span></div>
+      <p class="sub">画像で全員一致</p>
+    </div>
+    <div class="panel">
+      <p class="lbl" style="color:var(--accent);font-size:0.85rem;font-weight:800;margin:0 0 8px">このゲームは何？</p>
+      <p style="margin:0;line-height:1.55;font-weight:700;font-size:0.92rem">写真の一部が隠されたお題を見て、みんなで答えを書きます。同じ答えの人同士がグループになり、<strong style="color:var(--accent)">一番人数が少ないグループ（少数派）が罰杯</strong>です。</p>
+    </div>
+    <div class="panel" style="margin-top:12px">
+      <p class="lbl" style="color:var(--accent);font-size:0.85rem;font-weight:800;margin:0 0 8px">始め方</p>
+      <ol style="margin:0;padding-left:1.2em;line-height:1.55;font-weight:700;font-size:0.9rem">
+        <li>誰か1人がルームを作る（主催者）</li>
+        <li>コードやURLで友達を呼ぶ。足りなければダミーを追加</li>
+        <li>2人以上で主催者がゲーム開始</li>
+      </ol>
+    </div>
+    <div class="panel" style="margin-top:12px">
+      <p class="lbl" style="color:var(--accent);font-size:0.85rem;font-weight:800;margin:0 0 8px">1問の流れ</p>
+      <ol style="margin:0;padding-left:1.2em;line-height:1.55;font-weight:700;font-size:0.9rem">
+        <li>写真と「ここに入るのは？」が出る</li>
+        <li>各自が答えを入力して送信</li>
+        <li>主催者が同じ意味の答え同士をまとめる</li>
+        <li>判定。少数派が飲む。全員同じなら飲まないことも</li>
+        <li>次の問題へ。全部終わったら累計を見てロビーへ</li>
+      </ol>
+    </div>
+    <div class="panel" style="margin-top:12px">
+      <p class="lbl" style="color:var(--accent);font-size:0.85rem;font-weight:800;margin:0 0 8px">覚えておくと便利</p>
+      <ul style="margin:0;padding-left:1.2em;line-height:1.55;font-weight:700;font-size:0.9rem">
+        <li>主催者だけがグループまとめと次の問題へ進める</li>
+        <li>同人数の少数派が複数あるときは投票などで決まる場合あり</li>
+        <li>別アプリを開いても、同じブラウザなら戻ってこれる</li>
+        <li>ロビーでは主催者がメンバー削除できる</li>
+      </ul>
+    </div>
+    <div class="btn-row" style="margin-top:14px">
+      <button type="button" class="btn btn-ghost" id="rules-back-bottom">戻る</button>
+    </div>
+  </div>`;
+}
+
 function renderHome() {
   return `
   <div class="screen">
@@ -210,6 +270,7 @@ function renderHome() {
       <div class="logo"><span>画像で全員一致</span></div>
       <p class="sub">写真の一部を隠して、みんなで答えをそろえよう</p>
     </div>
+    ${rulesBtnHtml()}
     <div class="panel">
       <label class="field">
         <span class="lbl">なまえ</span>
@@ -243,15 +304,13 @@ function renderHome() {
       </div>
     </div>
     <div class="panel" style="margin-top:14px">
-      <p class="lbl" style="color:var(--accent);font-size:0.85rem;font-weight:800;margin:0 0 8px">遊び方</p>
+      <p class="lbl" style="color:var(--accent);font-size:0.85rem;font-weight:800;margin:0 0 8px">ざっくり</p>
       <ol style="margin:0;padding-left:1.2em;line-height:1.55;font-weight:700;font-size:0.9rem;color:var(--text)">
-        <li>写真の一部が隠されたお題が出る</li>
-        <li>各自が「何か」を答えとして入力する</li>
-        <li>主催者が同じ答え同士をグループにまとめる</li>
-        <li>一番人数が少ないグループ（少数派）が罰杯</li>
-        <li>全員一致なら誰も飲まないことも</li>
+        <li>隠れた部分に入るものを書く</li>
+        <li>同じ答えの人をまとめる</li>
+        <li>少数派が罰杯</li>
       </ol>
-      <p style="margin:10px 0 0;font-size:0.8rem;font-weight:700;color:var(--muted);line-height:1.45">ダミー参加者を足して人数を増やせます。別アプリを開いても同じブラウザなら戻ってこれます。</p>
+      <p style="margin:10px 0 0;font-size:0.8rem;font-weight:700;color:var(--muted);line-height:1.45">くわしくは上の「遊び方」へ。試合中もいつでも開けます。</p>
     </div>
   </div>`;
 }
@@ -266,6 +325,7 @@ function renderLobby() {
   const isHost = s.you?.isHost;
   return `
   <div class="screen">
+    ${rulesBtnHtml()}
     <div class="brand">
       <div class="app-name">飲みゲーパーティー</div>
       <div class="logo"><span>画像で全員一致</span></div>
@@ -322,6 +382,7 @@ function renderAnswering() {
   const q = s.question;
   return `
   <div class="screen">
+    ${rulesBtnHtml()}
     <div class="meta-bar">
       <span class="cat">第 ${q.index + 1} 問</span>
       <span>残りお題 ${q.remainingAfter}</span>
@@ -357,6 +418,7 @@ function renderGrouping() {
   const isHost = s.you?.isHost;
   return `
   <div class="screen">
+    ${rulesBtnHtml()}
     <div class="meta-bar">
       <span class="cat">第 ${q.index + 1} 問</span>
       <span>答え合わせ</span>
@@ -461,6 +523,7 @@ function renderResult() {
 
   return `
   <div class="screen">
+    ${rulesBtnHtml()}
     <div class="meta-bar">
       <span class="cat">結果</span>
       <span>第 ${s.question.index + 1} 問</span>
@@ -511,6 +574,7 @@ function renderDone() {
   const s = ui.state;
   return `
   <div class="screen">
+    ${rulesBtnHtml()}
     <div class="brand">
       <div class="app-name">飲みゲーパーティー</div>
       <div class="logo"><span>おつかれ！</span></div>
@@ -532,7 +596,8 @@ function renderDone() {
 
 function render() {
   let html = "";
-  if (ui.view === "home" || !ui.state) html = renderHome();
+  if (ui.view === "rules") html = renderRules();
+  else if (ui.view === "home" || !ui.state) html = renderHome();
   else if (ui.state.phase === "lobby") html = renderLobby();
   else if (ui.state.phase === "answering") html = renderAnswering();
   else if (ui.state.phase === "grouping") html = renderGrouping();
@@ -546,6 +611,29 @@ function render() {
 }
 
 function bindEvents() {
+  const openRulesBtn = document.getElementById("open-rules");
+  if (openRulesBtn) {
+    openRulesBtn.addEventListener("click", () => {
+      const back =
+        !ui.state || ui.view === "home"
+          ? "home"
+          : ui.state.phase === "lobby"
+            ? "lobby"
+            : "game";
+      openRules(back);
+    });
+  }
+  const backRules = () => {
+    if (ui.rulesBack === "lobby" && ui.state?.phase === "lobby") ui.view = "lobby";
+    else if (ui.rulesBack === "game" && ui.state) ui.view = "game";
+    else if (ui.state?.phase === "lobby") ui.view = "lobby";
+    else if (ui.state) ui.view = "game";
+    else ui.view = "home";
+    render();
+  };
+  document.getElementById("rules-back")?.addEventListener("click", backRules);
+  document.getElementById("rules-back-bottom")?.addEventListener("click", backRules);
+
   const nameEl = document.getElementById("name");
   if (nameEl) {
     nameEl.addEventListener("input", (e) => {
