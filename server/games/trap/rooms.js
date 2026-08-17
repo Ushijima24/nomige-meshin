@@ -303,7 +303,10 @@ function rotateHandsClockwise(room) {
     const pair = new Set(room.taimanPair);
     list = list.filter((p) => pair.has(p.id));
   }
-  if (list.length < 2) return { error: "回せる相手がいません" };
+  list = list.filter((p) => canAffect(room, p.id));
+  if (list.length < 2) {
+    return { error: "回せる相手がいません（ステルス中は飛びます）" };
+  }
   const hands = list.map((p) => p.hand);
   for (let i = 0; i < list.length; i++) {
     const from = (i - 1 + list.length) % list.length;
@@ -394,6 +397,7 @@ function captureEffectSnapshot(room) {
     amount: room.amount,
     holderId: room.holderId,
     lastPasserId: room.lastPasserId,
+    holderReceivedBoosted: !!room.holderReceivedBoosted,
     taimanPair: room.taimanPair ? [...room.taimanPair] : null,
     bombCountdown: room.bombCountdown,
     esconPlayerId: room.esconPlayerId || null,
@@ -424,6 +428,7 @@ function restoreEffectSnapshot(room, snap) {
   room.amount = snap.amount;
   room.holderId = snap.holderId;
   room.lastPasserId = snap.lastPasserId;
+  room.holderReceivedBoosted = !!snap.holderReceivedBoosted;
   room.taimanPair = snap.taimanPair ? [...snap.taimanPair] : null;
   room.bombCountdown = snap.bombCountdown;
   room.esconPlayerId = snap.esconPlayerId || null;
@@ -487,6 +492,7 @@ function tickTurnCounters(room, skip = {}) {
 function passDrink(room, toId, fromId) {
   room.lastPasserId = fromId;
   room.holderId = toId;
+  room.holderReceivedBoosted = (room.amount || 1) > 1;
   const to = getP(room, toId);
   const from = getP(room, fromId);
   pushLog(
@@ -765,6 +771,7 @@ function resetMatchFlags(room) {
   room.graveyard = [];
   room.lastPlayed = null;
   room.lastPasserId = null;
+  room.holderReceivedBoosted = false;
   room.taimanPair = null;
   room.bombCountdown = null;
   room.hanzaiDrawn = false;
@@ -822,6 +829,7 @@ export function createRoom(hostName, avatar) {
     amount: 1,
     holderId: null,
     lastPasserId: null,
+    holderReceivedBoosted: false,
     graveyard: [],
     matchLog: [],
     matchHistory: [],
@@ -870,6 +878,7 @@ export function createFromParty(partySnap) {
     amount: 1,
     holderId: null,
     lastPasserId: null,
+    holderReceivedBoosted: false,
     graveyard: [],
     matchLog: [],
     matchHistory: [],
@@ -1439,9 +1448,9 @@ export function playCard(room, actorId, instanceId, opts = {}) {
 
   // ランダム渡しは手札を動かす前に判定（失敗時の回数券増殖を防ぐ）
   const randomPassIds = ["kaisuken", "howitt", "hanryu", "baika", "bommer"];
-  if (effectId === "baibai_fight" && (room.amount || 1) > 1) {
-    randomPassIds.push("baibai_fight");
-  }
+  const baibaiBoostedArrival =
+    effectId === "baibai_fight" && !!room.holderReceivedBoosted;
+  if (baibaiBoostedArrival) randomPassIds.push("baibai_fight");
   if (randomPassIds.includes(effectId) && !pickRandom(room, playerId)) {
     return { error: "渡せる相手がいません" };
   }
@@ -1455,7 +1464,7 @@ export function playCard(room, actorId, instanceId, opts = {}) {
     def.id === "kaisuken" || (def.id === "copy" && effectId === "kaisuken");
   const kaisukenFrom = def.id === "copy" ? 2 : used.usesLeft ?? 2;
   const kaisukenLeft = playsAsKaisuken ? kaisukenFrom - 1 : 0;
-  const baibaiStays = def.id === "baibai_fight" && (room.amount || 1) > 1;
+  const baibaiStays = def.id === "baibai_fight" && !!room.holderReceivedBoosted;
 
   const graveIds = [];
   if (baibaiStays) {
@@ -1672,7 +1681,7 @@ function resolveEffect(room, playerId, effectId, opts) {
         const r = CARDS[g.cardId]?.rank;
         if (!["A", "B", "C"].includes(r)) continue;
         room.graveyard.splice(idx, 1);
-        const fresh = makeInstance(g.cardId);
+        const fresh = refreshKaisuken(makeInstance(g.cardId));
         giveCard(room, player, fresh);
         taken.push(CARDS[g.cardId].name);
       }
@@ -1738,14 +1747,14 @@ function resolveEffect(room, playerId, effectId, opts) {
       return {};
     }
     case "baibai_fight": {
-      const boosted = (room.amount || 1) > 1;
+      const boosted = !!room.holderReceivedBoosted;
       multiplyAmount(room, 2);
       if (boosted) {
         const rid = pickRandom(room, playerId);
         if (!rid) return { error: "渡せる相手がいません" };
-        pushLog(room, `🥊 倍倍Fight！増やされた酒をさらに倍にして渡す（カードは残る）`);
+        pushLog(room, `🥊 倍倍Fight！回ってきた増やされた酒をさらに倍にして渡す（カードは残る）`);
         passDrink(room, rid, playerId);
-        return { announceBody: "増やされた酒を倍にして渡した（カードは残る）" };
+        return { announceBody: "回ってきた酒を倍にして渡した（カードは残る）" };
       }
       pushLog(room, `🥊 倍倍Fight！酒を倍にした`);
       return { announceBody: "酒を倍にした" };
