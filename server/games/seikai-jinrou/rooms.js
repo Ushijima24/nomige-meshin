@@ -136,6 +136,42 @@ function connectedPlayers(room) {
   return playerList(room).filter((p) => p.connected !== false);
 }
 
+function baVoteTargets(room, voterId) {
+  return connectedPlayers(room)
+    .map((p) => p.id)
+    .filter((id) => id !== voterId);
+}
+
+function wolfCandidateIds(room) {
+  const ba = new Set(room.bestAnswer?.playerIds || []);
+  if (room.wolfVoteStage === "runoff" || room.wolfVoteStage === "host") {
+    return (room.wolfTiedIds || []).filter((id) => room.players.has(id));
+  }
+  return connectedPlayers(room)
+    .filter((p) => !ba.has(p.id))
+    .map((p) => p.id);
+}
+
+function wolfVoteTargets(room, voterId) {
+  return wolfCandidateIds(room).filter((id) => id !== voterId);
+}
+
+function playersWhoMustVote(room) {
+  const voters = connectedPlayers(room);
+  if (room.phase === "vote_ba") {
+    return voters.filter((p) => baVoteTargets(room, p.id).length > 0);
+  }
+  if (room.phase === "vote_wolf") {
+    if (room.wolfVoteStage === "host") return [];
+    return voters.filter((p) => wolfVoteTargets(room, p.id).length > 0);
+  }
+  return [];
+}
+
+function requiredVotesIn(room, voteMap) {
+  return playersWhoMustVote(room).every((p) => voteMap.has(p.id));
+}
+
 function blankRoomFields() {
   return {
     phase: "lobby",
@@ -570,6 +606,20 @@ function enterWolfVote(room) {
   room.wolfVoteStage = "first";
   room.wolfTiedIds = [];
   room.phase = "vote_wolf";
+  settleWolfVotes(room);
+}
+
+function settleWolfVotes(room) {
+  if (room.phase !== "vote_wolf") return;
+  if (room.wolfVoteStage === "host") return;
+  if (!requiredVotesIn(room, room.wolfVotes)) return;
+  finalizeWolfVotes(room);
+}
+
+function settleBaVotes(room) {
+  if (room.phase !== "vote_ba") return;
+  if (!requiredVotesIn(room, room.baVotes)) return;
+  finalizeBaVotes(room);
 }
 
 function publicPerson(room, id) {
@@ -714,6 +764,12 @@ function finalizeWolfVotes(room) {
     finishWolfAccused(room, winners[0]);
     return;
   }
+  if (!winners.length) {
+    const cands = wolfCandidateIds(room);
+    if (cands.length === 1) finishWolfAccused(room, cands[0]);
+    else finishWolfTieLose(room);
+    return;
+  }
   if (room.wolfVoteStage === "runoff") {
     finishWolfTieLose(room);
     return;
@@ -740,9 +796,11 @@ export function castVote(room, voterId, targetId) {
 
   if (room.phase === "vote_ba") {
     if (room.baVotes.has(voterId)) return { error: "すでに投票済み" };
+    if (!baVoteTargets(room, voterId).includes(targetId)) {
+      return { error: "その人には投票できないよ" };
+    }
     room.baVotes.set(voterId, targetId);
-    const voters = connectedPlayers(room);
-    if (voters.every((p) => room.baVotes.has(p.id))) finalizeBaVotes(room);
+    settleBaVotes(room);
     return { ok: true };
   }
 
@@ -750,15 +808,12 @@ export function castVote(room, voterId, targetId) {
     if (room.wolfVoteStage === "host") {
       return { error: "いまは投票できません" };
     }
-    const ba = new Set(room.bestAnswer?.playerIds || []);
-    if (ba.has(targetId)) return { error: "ベストアンサーは選べません" };
-    if (room.wolfVoteStage === "runoff" && !room.wolfTiedIds.includes(targetId)) {
-      return { error: "同数トップの中から選んでね" };
+    if (!wolfVoteTargets(room, voterId).includes(targetId)) {
+      return { error: "その人には投票できないよ" };
     }
     if (room.wolfVotes.has(voterId)) return { error: "すでに投票済み" };
     room.wolfVotes.set(voterId, targetId);
-    const voters = connectedPlayers(room);
-    if (voters.every((p) => room.wolfVotes.has(p.id))) finalizeWolfVotes(room);
+    settleWolfVotes(room);
     return { ok: true };
   }
 
@@ -796,10 +851,8 @@ export function voteAsBot(room, botId) {
   if (!bot?.isBot) return { error: "botではない" };
   if (room.phase === "vote_ba") {
     if (room.baVotes.has(botId)) return { ok: true, skipped: true };
-    const candidates = connectedPlayers(room)
-      .map((p) => p.id)
-      .filter((id) => id !== botId);
-    if (!candidates.length) return { error: "候補なし" };
+    const candidates = baVoteTargets(room, botId);
+    if (!candidates.length) return { ok: true, skipped: true };
     return castVote(
       room,
       botId,
@@ -809,32 +862,20 @@ export function voteAsBot(room, botId) {
   if (room.phase === "vote_wolf") {
     if (room.wolfVoteStage === "host") return { ok: true, skipped: true };
     if (room.wolfVotes.has(botId)) return { ok: true, skipped: true };
-    const ba = new Set(room.bestAnswer?.playerIds || []);
-    const pool =
-      room.wolfVoteStage === "runoff"
-        ? room.wolfTiedIds.filter((id) => id !== botId)
-        : connectedPlayers(room)
-            .filter((p) => !ba.has(p.id) && p.id !== botId)
-            .map((p) => p.id);
-    if (!pool.length) return { error: "候補なし" };
+    const pool = wolfVoteTargets(room, botId);
+    if (!pool.length) return { ok: true, skipped: true };
     return castVote(room, botId, pool[(Math.random() * pool.length) | 0]);
   }
   return { ok: true, skipped: true };
 }
 
 export function listBotsNeedingVote(room) {
-  if (room.phase === "vote_ba") {
-    return connectedPlayers(room)
-      .filter((p) => p.isBot && !room.baVotes.has(p.id))
-      .map((p) => p.id);
-  }
-  if (room.phase === "vote_wolf") {
-    if (room.wolfVoteStage === "host") return [];
-    return connectedPlayers(room)
-      .filter((p) => p.isBot && !room.wolfVotes.has(p.id))
-      .map((p) => p.id);
-  }
-  return [];
+  return playersWhoMustVote(room)
+    .filter((p) => p.isBot)
+    .filter((p) =>
+      room.phase === "vote_ba" ? !room.baVotes.has(p.id) : !room.wolfVotes.has(p.id)
+    )
+    .map((p) => p.id);
 }
 
 export function nextRound(room, playerId) {
@@ -902,7 +943,6 @@ export function publicState(room, viewerId) {
   );
   const isHost = me?.id === room.hostId;
 
-  const baIds = new Set(room.bestAnswer?.playerIds || []);
   const voteMap =
     room.phase === "vote_ba"
       ? room.baVotes
@@ -946,7 +986,8 @@ export function publicState(room, viewerId) {
               : null,
         }
       : null,
-    answeredCount: room.answers.size,
+    answeredCount: connectedPlayers(room).filter((p) => room.answers.has(p.id))
+      .length,
     expectedCount: connectedPlayers(room).length,
     myAnswer: room.answers.get(viewerId) || null,
     hasAnswered: room.answers.has(viewerId),
@@ -966,23 +1007,24 @@ export function publicState(room, viewerId) {
       ? room.wolfTiedIds.map((id) => publicPerson(room, id))
       : null,
     wolfCandidates: room.phase === "vote_wolf"
-      ? (room.wolfVoteStage === "runoff" || room.wolfVoteStage === "host"
-          ? (room.wolfTiedIds || []).map((id) => publicPerson(room, id))
-          : connectedPlayers(room)
-              .filter((p) => !baIds.has(p.id))
-              .map((p) => publicPerson(room, p.id)))
+      ? wolfCandidateIds(room).map((id) => publicPerson(room, id))
       : null,
-    hasVoted: voteMap ? voteMap.has(viewerId) : false,
+    hasVoted: voteMap
+      ? voteMap.has(viewerId) ||
+        !playersWhoMustVote(room).some((p) => p.id === viewerId)
+      : false,
     voteKept:
       room.phase === "vote_wolf" &&
       room.wolfVoteStage === "runoff" &&
       room.wolfVotes.has(viewerId),
     revoteLeft:
       room.phase === "vote_wolf" && room.wolfVoteStage === "runoff"
-        ? connectedPlayers(room).filter((p) => !room.wolfVotes.has(p.id)).length
+        ? playersWhoMustVote(room).filter((p) => !room.wolfVotes.has(p.id)).length
         : 0,
-    voteCount: voteMap ? voteMap.size : 0,
-    voteExpected: connectedPlayers(room).length,
+    voteCount: voteMap
+      ? playersWhoMustVote(room).filter((p) => voteMap.has(p.id)).length
+      : 0,
+    voteExpected: voteMap ? playersWhoMustVote(room).length : connectedPlayers(room).length,
     baVoteTally:
       revealed || room.phase === "vote_wolf"
         ? publicVoteTally(room, room.baVotes)

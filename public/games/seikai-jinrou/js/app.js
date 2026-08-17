@@ -515,19 +515,23 @@ function renderVoteWolf() {
         )
         .join("")}</div>`;
   } else {
+    const cards = (s.wolfCandidates || []).filter((p) => p.id !== s.you?.id);
     body = `${baBlock}
       <p class="vote-lead">選ばれなかった人から<br/>怪しい人を投票して<br/><span class="vote-lead-sub">（自分には投票できない）</span></p>
-      <div class="pick-grid">${(s.wolfCandidates || [])
-        .filter((p) => p.id !== s.you?.id)
-        .map((p) =>
-          pickCardHtml({
-            id: p.id,
-            avatar: p.avatar,
-            name: p.name,
-            answer: p.answer,
-          })
-        )
-        .join("")}</div>`;
+      ${
+        cards.length
+          ? `<div class="pick-grid">${cards
+              .map((p) =>
+                pickCardHtml({
+                  id: p.id,
+                  avatar: p.avatar,
+                  name: p.name,
+                  answer: p.answer,
+                })
+              )
+              .join("")}</div>`
+          : `<p class="wait">あなたは投票できないので、ほかの人を待ってね</p>`
+      }`;
   }
 
   return `
