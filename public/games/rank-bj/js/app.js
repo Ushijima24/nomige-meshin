@@ -317,18 +317,8 @@ function renderHome() {
 function renderLobby() {
   const s = ui.state;
   return `
-    <a class="back" href="${
-      hasPartySession()
-        ? partyHomeUrl(loadPartySession()?.code || ui.state?.code)
-        : "/"
-    }">← パーティー</a>
     <h1>ランキングBJ</h1>
     ${rulesBtnHtml()}
-    <div class="panel">
-      <div class="section-title">ルームコード</div>
-      <div class="code-big">${escapeHtml(s.code)}</div>
-      <p class="sub" style="text-align:center;margin:0">作成者がGM。お題選びと判定をします</p>
-    </div>
     <div class="panel">
       <div class="section-title">参加者 ${s.players.length}/10</div>
       ${playersHtml(s.players, { canRemove: s.isHost })}
@@ -342,25 +332,16 @@ function renderLobby() {
     </div>
     ${
       s.isHost
-        ? `<button class="btn" id="start" ${ui.busy || s.players.length < 2 ? "disabled" : ""}>ゲーム開始（2人〜）</button>`
+        ? `<button class="btn" id="start" ${ui.busy || s.players.length < 2 ? "disabled" : ""}>ゲーム開始</button>`
         : `<p class="sub">GMの開始待ち…</p>`
-    }
-    <button class="btn ghost" id="leave-room" ${ui.busy ? "disabled" : ""} style="margin-top:12px">この部屋から出る</button>
-    ${
-      ui.state?.isHost
-        ? `<button class="btn ghost" id="to-party" ${ui.busy ? "disabled" : ""} style="margin-top:8px">パーティーに戻る</button>`
-        : hasPartySession()
-          ? `<p class="sub">主催者がパーティーに戻すまで待ってね</p>`
-          : ""
     }
     ${
       s.isHost
-        ? `<button class="btn ghost" id="back-party" ${ui.busy ? "disabled" : ""} style="margin-top:8px">パーティーに戻る</button>`
+        ? `<button class="btn ghost" id="back-party" ${ui.busy ? "disabled" : ""} style="margin-top:12px">ゲーム選択に戻る</button>`
         : hasPartySession()
-          ? `<p class="sub">主催者がパーティーに戻すまで待ってね</p>`
+          ? `<p class="sub">主催者がゲーム選択に戻すまで待ってね</p>`
           : ""
     }
-    ${drinkBoardHtml()}
     ${ui.error ? `<div class="error">${escapeHtml(ui.error)}</div>` : ""}
   `;
 }
@@ -703,8 +684,8 @@ app.addEventListener("click", (e) => {
     return;
   }
   if (t.id === "to-lobby") return emit("back_to_lobby");
-  if (t.id === "to-party") {
-    if (confirm("パーティーに戻りますか？累計杯数は持ち越されます。")) {
+  if (t.id === "to-party" || t.id === "back-party") {
+    if (confirm("ゲーム選択に戻りますか？累計杯数は持ち越されます。")) {
       emit("back_to_party");
     }
     return;

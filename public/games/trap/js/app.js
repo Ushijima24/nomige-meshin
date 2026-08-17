@@ -356,12 +356,47 @@ function backLinkHtml() {
 function partyReturnBtnHtml(id = "back-party") {
   if (!ui.state?.isHost) {
     return hasPartySession()
-      ? `<p class="sub">主催者がパーティーに戻すまで待ってね</p>`
+      ? `<p class="sub">主催者がゲーム選択に戻すまで待ってね</p>`
       : "";
   }
   return `<button class="btn ghost" id="${id}" ${
     ui.busy ? "disabled" : ""
-  }>パーティーに戻る</button>`;
+  }>ゲーム選択に戻る</button>`;
+}
+
+function renderLobby() {
+  const s = ui.state;
+  return `
+    <h1>トラップゲーム</h1>
+    <div class="rules-tabs" style="margin-bottom:12px">
+      <button type="button" class="rules-tab" data-open-rules="howto">遊び方</button>
+    </div>
+    <div class="panel">
+      <div class="section-title">参加者 ${s.players.length}/10</div>
+      ${playersHtml(s.players, { canRemove: s.isHost })}
+      ${
+        s.isHost
+          ? `<div class="row" style="margin-top:12px">
+              <button class="btn ghost" id="add-bot" ${
+                ui.busy || s.players.length >= 10 ? "disabled" : ""
+              }>＋PC参加</button>
+              <button class="btn ghost" id="add-bots4" ${
+                ui.busy || s.players.length >= 10 ? "disabled" : ""
+              }>PCを4人追加</button>
+            </div>`
+          : ""
+      }
+    </div>
+    ${
+      s.isHost
+        ? `<button class="btn" id="start" ${
+            ui.busy || s.players.length < 2 ? "disabled" : ""
+          }>ゲーム開始</button>`
+        : `<p class="sub">主催者の開始待ち…</p>`
+    }
+    ${partyReturnBtnHtml("back-party-lobby")}
+    ${ui.error ? `<div class="error">${escapeHtml(ui.error)}</div>` : ""}
+  `;
 }
 
 function openRules(back = "home", tab = "howto") {
@@ -550,51 +585,6 @@ function renderHome() {
   `;
 }
 
-function renderLobby() {
-  const s = ui.state;
-  const tab = ui.rulesTab === "cards" ? "cards" : "howto";
-  return `
-    ${backLinkHtml()}
-    <h1>トラップゲーム</h1>
-    <div class="panel">
-      <div class="section-title">ルームコード</div>
-      <div class="code-big">${escapeHtml(s.code)}</div>
-      <p class="sub" style="text-align:center;margin:0">このコードを共有してね</p>
-    </div>
-    <div class="panel">
-      <div class="section-title">参加者 ${s.players.length}/10</div>
-      ${playersHtml(s.players, { canRemove: s.isHost })}
-      ${
-        s.isHost
-          ? `<div class="row" style="margin-top:12px">
-              <button class="btn ghost" id="add-bot" ${
-                ui.busy || s.players.length >= 10 ? "disabled" : ""
-              }>＋PC参加</button>
-              <button class="btn ghost" id="add-bots4" ${
-                ui.busy || s.players.length >= 10 ? "disabled" : ""
-              }>PCを4人追加</button>
-            </div>
-            <p class="sub" style="margin:8px 0 0;font-size:0.78rem">PCは酒が回ると自動でカードを使います</p>`
-          : ""
-      }
-    </div>
-    ${
-      s.isHost
-        ? `<button class="btn" id="start" ${
-            ui.busy || s.players.length < 2 ? "disabled" : ""
-          }>ゲーム開始（2人〜）</button>`
-        : `<p class="sub">主催者の開始待ち…</p>`
-    }
-    <button class="btn ghost" id="leave-room" ${ui.busy ? "disabled" : ""} style="margin-top:12px">この部屋から出る</button>
-    ${partyReturnBtnHtml("back-party-lobby")}
-    ${ui.error ? `<div class="error">${escapeHtml(ui.error)}</div>` : ""}
-    <h2 class="rules-inline-title" style="margin-top:28px">${
-      tab === "cards" ? "カード一覧" : "遊び方"
-    }</h2>
-    ${renderRulesTabs()}
-    ${tab === "cards" ? renderCardsTab() : renderHowtoTab()}
-  `;
-}
 
 function renderModals() {
   const s = ui.state;
@@ -1028,7 +1018,7 @@ function bind() {
   app.querySelectorAll("[data-open-rules]").forEach((btn) => {
     btn.addEventListener("click", () => {
       openRules(
-        "game",
+        ui.view === "home" ? "home" : ui.view === "lobby" ? "lobby" : "game",
         btn.getAttribute("data-open-rules") === "cards" ? "cards" : "howto"
       );
     });

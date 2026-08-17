@@ -358,7 +358,6 @@ function shareUrl() {
 
 function renderLobby() {
   const s = ui.state;
-  const share = shareUrl();
   const isHost = s.you?.isHost;
   return `
   <div class="screen">
@@ -366,11 +365,6 @@ function renderLobby() {
     <div class="brand">
       <div class="app-name">飲みゲーパーティー</div>
       <div class="logo"><span>画像で全員一致</span></div>
-    </div>
-    <div class="room-code">
-      <div class="tiny">ルームコード</div>
-      <div class="code">${s.code}</div>
-      <div class="hint">LINEでURLを共有してね</div>
     </div>
     <div class="panel">
       <p class="lbl" style="color:var(--muted);font-size:0.8rem;font-weight:700;margin-bottom:4px">参加者 ${s.players.length}/10</p>
@@ -380,10 +374,7 @@ function renderLobby() {
           ? `<div class="bot-actions">
               <button type="button" id="btn-add-bot" ${
                 s.players.length >= 10 || ui.busy ? "disabled" : ""
-              }>＋ダミー参加者を追加</button>
-              <button type="button" id="btn-add-bots4" ${
-                s.players.length >= 10 || ui.busy ? "disabled" : ""
-              }>ダミー4人まとめて</button>
+              }>＋PC参加</button>
             </div>`
           : ""
       }
@@ -394,26 +385,17 @@ function renderLobby() {
               <button class="btn btn-primary" id="btn-start" ${
                 s.players.length < 2 || ui.busy ? "disabled" : ""
               }>ゲーム開始</button>
-              <p class="wait">${
-                s.players.length < 2
-                  ? "友だちかダミーをあと1人以上追加してね"
-                  : "人数そろったら開始！"
-              }</p>
             </div>`
           : `<p class="wait">主催者の開始待ち…</p>`
       }
-      <div class="btn-row">
-        <button class="btn btn-ghost" id="btn-leave">この部屋から出る</button>
+      <div class="btn-row" style="margin-top:12px">
         ${
           isHost
-            ? `<button class="btn btn-ghost" id="btn-party">パーティーに戻る</button>`
-            : ""
+            ? `<button class="btn btn-ghost" id="btn-party" ${ui.busy ? "disabled" : ""}>ゲーム選択に戻る</button>`
+            : hasPartySession()
+              ? `<p class="wait">主催者がゲーム選択に戻すまで待ってね</p>`
+              : ""
         }
-      </div>
-      <p class="share-url">${escapeHtml(share)}</p>
-      <div class="btn-row">
-        <button class="btn btn-line" id="btn-line">LINEで共有</button>
-        <button class="btn btn-ghost" id="btn-copy">参加URLをコピー</button>
       </div>
     </div>
   </div>`;
@@ -876,7 +858,7 @@ function bindEvents() {
   const partyBtn = document.getElementById("btn-party");
   if (partyBtn) {
     partyBtn.addEventListener("click", () => {
-      if (confirm("パーティーに戻りますか？累計杯数は持ち越されます。")) {
+      if (confirm("ゲーム選択に戻りますか？累計杯数は持ち越されます。")) {
         emit("back_to_party");
       }
     });

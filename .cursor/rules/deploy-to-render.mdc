@@ -1,0 +1,16 @@
+---
+description: Always deploy nomige-meshin changes to Render after finishing work
+alwaysApply: true
+---
+
+# Deploy to Render
+
+This app is live at https://nomige-meshin.onrender.com (GitHub: `Ushijima24/nomige-meshin`, branch `master`). Render deploys from GitHub.
+
+After completing user-requested changes in this repo:
+
+1. Commit the relevant files (do not wait to be asked).
+2. Push to `origin/master` so Render redeploys.
+3. Tell the user when the push is done; Render may take a minute to go live.
+
+Do not leave finished UI/game fixes only on the local machine.
