@@ -596,14 +596,21 @@ function finishWolfAccused(room, accusedId) {
   room.phase = "result";
 }
 
-function startWolfTieBreak(room, winners) {
+/** 同数トップ → 全員で再投票（票はリセット） */
+function startWolfAllRevote(room, winners) {
   room.wolfTiedIds = [...winners];
-  const tied = new Set(winners);
-  for (const [voterId, targetId] of [...room.wolfVotes]) {
-    if (!tied.has(targetId)) room.wolfVotes.delete(voterId);
-  }
-  const needRevote = connectedPlayers(room).some((p) => !room.wolfVotes.has(p.id));
-  room.wolfVoteStage = needRevote ? "runoff" : "host";
+  room.wolfVotes = new Map();
+  room.wolfVoteStage = "runoff";
+}
+
+/** 再投票でも割れなければ人狼の負け */
+function finishWolfTieLose(room) {
+  room.accusedId = null;
+  room.wolfVoteStage = "first";
+  room.wolfTiedIds = [];
+  room.resultKind = "wolf_tie";
+  applyDrinks(room, drinksWhenWolfCaught(room));
+  room.phase = "result";
 }
 
 export function hostPickBa(room, playerId, groupId) {
@@ -708,11 +715,10 @@ function finalizeWolfVotes(room) {
     return;
   }
   if (room.wolfVoteStage === "runoff") {
-    startWolfTieBreak(room, winners);
-    room.wolfVoteStage = "host";
+    finishWolfTieLose(room);
     return;
   }
-  startWolfTieBreak(room, winners);
+  startWolfAllRevote(room, winners);
 }
 
 export function hostPickAccused(room, playerId, targetId) {
@@ -742,7 +748,7 @@ export function castVote(room, voterId, targetId) {
 
   if (room.phase === "vote_wolf") {
     if (room.wolfVoteStage === "host") {
-      return { error: "主催者が追放する人を決める番です" };
+      return { error: "いまは投票できません" };
     }
     const ba = new Set(room.bestAnswer?.playerIds || []);
     if (ba.has(targetId)) return { error: "ベストアンサーは選べません" };
@@ -977,9 +983,19 @@ export function publicState(room, viewerId) {
         : 0,
     voteCount: voteMap ? voteMap.size : 0,
     voteExpected: connectedPlayers(room).length,
-    baVoteTally: revealed ? publicVoteTally(room, room.baVotes) : null,
-    baVoteByHost: revealed ? !!(room.bestAnswer && !(room.baVotes?.size)) : false,
-    wolfVoteTally: revealed ? publicVoteTally(room, room.wolfVotes) : null,
+    baVoteTally:
+      revealed || room.phase === "vote_wolf"
+        ? publicVoteTally(room, room.baVotes)
+        : null,
+    baVoteByHost:
+      revealed || room.phase === "vote_wolf"
+        ? !!(room.bestAnswer && !(room.baVotes?.size))
+        : false,
+    wolfVoteTally:
+      revealed ||
+      (room.phase === "vote_wolf" && room.wolfVotes.has(viewerId))
+        ? publicVoteTally(room, room.wolfVotes)
+        : null,
     drinks: revealed ? publicDrinks(room) : null,
     drinkBoard,
     resultKind: revealed ? room.resultKind : "",

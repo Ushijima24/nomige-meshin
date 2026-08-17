@@ -212,15 +212,16 @@ function rulesBodyHtml() {
         <li>人狼はベストアンサーになってはいけない</li>
         <li>答えが全員バラバラなら、投票でベストアンサーを決める（<strong>自分には投票できない</strong>）</li>
         <li>同じ答えの被りがあるときは、主催者がその回答をベストアンサーにする</li>
+        <li>ベストアンサーが<strong>市民</strong>なら人狼投票へ。ベストアンサーが<strong>人狼</strong>なら投票なしでラウンド終了（人狼の負け）</li>
         <li>ベストアンサー以外から人狼を投票（<strong>自分には投票できない</strong>）。最多票が人狼なら人狼の負け（1杯）</li>
-        <li>同数トップなら、そこに入れてない人だけが再投票。それでも割れなければ主催者が追放する人を決める</li>
+        <li>同数トップなら<strong>全員で再投票</strong>。それでも割れなければ<strong>人狼の負け</strong>（1杯）</li>
         <li>当てられなかったら、ベストアンサーでも人狼指名でもない市民だけが飲む</li>
       </ol>
     </div>
     <div class="panel howto">
       <div class="section-title">罰杯</div>
       <ul>
-        <li>人狼がベストアンサーになった／人狼が最多票（追放） → 人狼が1杯</li>
+        <li>人狼がベストアンサーになった／人狼が最多票（追放）／再投票でも同数 → 人狼が1杯</li>
         <li>人狼を逃した → 市民のうち、BAでも指名人狼でもない人だけ</li>
         <li>再投票は「誰が人狼に入れたか」の飲み判定には使わない。最終の指名だけ見る</li>
       </ul>
@@ -461,6 +462,16 @@ function renderVoteBa() {
     </div>`;
 }
 
+function baCitizenBannerHtml(s) {
+  const members = s.bestAnswer?.members || [];
+  if (!members.length) return "";
+  const names = members.map((m) => `${m.avatar} ${escapeHtml(m.name)}`).join("、");
+  return `<div class="ba-reveal citizen">
+    <div class="ba-reveal-main">${names} は<strong>市民</strong>だった</div>
+    <div class="ba-reveal-sub">人狼がベストアンサーなら、ここでラウンド終了（人狼の負け）</div>
+  </div>`;
+}
+
 function renderVoteWolf() {
   const s = ui.state;
   const ba = (s.bestAnswer?.members || [])
@@ -479,30 +490,19 @@ function renderVoteWolf() {
         ? "主催者"
         : `${s.voteCount}/${s.voteExpected}`;
 
+  const baBlock = `
+    <p class="ba-note">ベストアンサー: 「${escapeHtml(s.bestAnswer?.label || "")}」${ba ? `（${escapeHtml(ba)}）` : ""}</p>
+    ${baCitizenBannerHtml(s)}
+    ${voteTallyHtml("ベストアンサー投票の内訳", s.baVoteTally, { hostPick: !!s.baVoteByHost })}`;
+
   let body = "";
-  if (stage === "host") {
-    body = s.you?.isHost
-      ? `<p class="host-tip">まだ同数。話し合ってから、追放する人を選んでボタンを押してね<br/>${escapeHtml(tiedNames)}</p>
-         <div class="pick-grid">${(s.wolfCandidates || [])
-           .map((p) =>
-             pickCardHtml({
-               id: p.id,
-               avatar: p.avatar,
-               name: p.name,
-               answer: p.answer,
-               attr: "data-exile",
-               selected: ui.selectedExileId === p.id,
-             })
-           )
-           .join("")}</div>
-         <button class="btn danger" id="btn-exile" ${ui.busy || !ui.selectedExileId ? "disabled" : ""}>この人を追放する</button>`
-      : `<p class="wait">同数のまま。主催者が追放する人を決めています…<br/>${escapeHtml(tiedNames)}</p>`;
-  } else if (s.hasVoted) {
-    body = s.voteKept
-      ? `<p class="wait">同数トップに入れた票はそのまま。再投票を待ってるよ</p>`
-      : `<p class="wait">投票済み！ほかの人を待ってるよ</p>`;
+  if (s.hasVoted) {
+    body = `${baBlock}
+      <p class="wait">投票済み！ほかの人を待ってるよ</p>
+      ${voteTallyHtml("人狼投票（途中経過）", s.wolfVoteTally)}`;
   } else if (stage === "runoff") {
-    body = `<p class="host-tip">同数トップ: ${escapeHtml(tiedNames)}<br/>ここに入れてない人だけ、この中から再投票（自分には投票できない）</p>
+    body = `${baBlock}
+      <p class="host-tip">同数トップ: ${escapeHtml(tiedNames)}<br/>全員でこの中から再投票（自分には投票できない）。また同数なら人狼の負け</p>
       <div class="pick-grid">${(s.wolfCandidates || [])
         .filter((p) => p.id !== s.you?.id)
         .map((p) =>
@@ -515,7 +515,7 @@ function renderVoteWolf() {
         )
         .join("")}</div>`;
   } else {
-    body = `<p class="ba-note">ベストアンサー: 「${escapeHtml(s.bestAnswer?.label || "")}」${ba ? `（${escapeHtml(ba)}）` : ""}</p>
+    body = `${baBlock}
       <p class="vote-lead">選ばれなかった人から<br/>怪しい人を投票して<br/><span class="vote-lead-sub">（自分には投票できない）</span></p>
       <div class="pick-grid">${(s.wolfCandidates || [])
         .filter((p) => p.id !== s.you?.id)
@@ -581,12 +581,24 @@ function renderResult() {
     banner = `<div class="result-banner caught">人狼を見つけた！人狼の1人飲み</div>`;
   } else if (s.resultKind === "wolf_ba") {
     banner = `<div class="result-banner wolf_ba">人狼がベストアンサー…人狼の負け</div>`;
+  } else if (s.resultKind === "wolf_tie") {
+    banner = `<div class="result-banner wolf_ba">再投票でも同数…人狼の負け</div>`;
   } else {
     banner = `<div class="result-banner escape">人狼を逃した…市民の罰杯</div>`;
   }
+  const baMembers = (s.bestAnswer?.members || [])
+    .map((m) => `${m.avatar} ${escapeHtml(m.name)}`)
+    .join("、");
   const missNote =
     s.resultKind === "wolf_escape" && s.accused
       ? `<p class="miss-note">${s.accused.avatar} ${escapeHtml(s.accused.name)} は<br/>人狼ではありませんでした</p>`
+      : "";
+  const wolfBaNote =
+    s.resultKind === "wolf_ba" && baMembers
+      ? `<div class="ba-reveal wolf">
+          <div class="ba-reveal-main">${baMembers} は<strong>人狼</strong>だった</div>
+          <div class="ba-reveal-sub">ベストアンサーになったので、人狼投票なしでラウンド終了</div>
+        </div>`
       : "";
   const drinks = (s.drinks || []).length
     ? `<div class="drink-list">${s.drinks
@@ -596,16 +608,17 @@ function renderResult() {
         )
         .join("")}</div>`
     : `<p class="wait">飲む人なし</p>`;
-  const baTally = voteTallyHtml("ベストアンサー投票", s.baVoteTally, {
+  const baTally = voteTallyHtml("ベストアンサー投票の内訳", s.baVoteTally, {
     hostPick: !!s.baVoteByHost,
   });
-  const wolfTally = voteTallyHtml("人狼投票", s.wolfVoteTally, {
+  const wolfTally = voteTallyHtml("人狼投票の内訳", s.wolfVoteTally, {
     skipped: s.resultKind === "wolf_ba" && !(s.wolfVoteTally || []).length,
   });
   return `
     ${screenHeadHtml()}
     <div class="meta-bar"><span class="pill">結果</span><span>ラウンド ${s.round}</span></div>
     ${banner}
+    ${wolfBaNote}
     ${missNote}
     <div class="panel">
       <p class="sub" style="margin:0 0 8px">人狼は ${s.wolf?.avatar || ""} ${escapeHtml(s.wolf?.name || "?")}</p>

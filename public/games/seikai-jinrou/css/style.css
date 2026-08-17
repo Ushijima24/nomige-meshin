@@ -253,6 +253,34 @@ input[type="text"] {
   margin: 0 0 10px;
   line-height: 1.4;
 }
+.ba-reveal {
+  text-align: center;
+  border-radius: 14px;
+  padding: 12px 14px;
+  margin: 0 0 12px;
+  line-height: 1.45;
+}
+.ba-reveal.citizen {
+  background: rgba(94, 240, 224, 0.12);
+  border: 1px solid rgba(94, 240, 224, 0.28);
+}
+.ba-reveal.wolf {
+  background: rgba(255, 107, 138, 0.16);
+  border: 1px solid rgba(255, 92, 122, 0.35);
+}
+.ba-reveal-main {
+  font-size: 1.12rem;
+  font-weight: 800;
+  color: var(--text);
+}
+.ba-reveal.citizen .ba-reveal-main strong { color: var(--accent2); }
+.ba-reveal.wolf .ba-reveal-main strong { color: var(--danger); }
+.ba-reveal-sub {
+  margin-top: 6px;
+  font-size: 0.82rem;
+  font-weight: 700;
+  color: var(--muted);
+}
 .vote-lead {
   font-size: 1.2rem;
   color: var(--accent);
