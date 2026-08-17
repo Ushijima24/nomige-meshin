@@ -160,11 +160,21 @@ socket.on("state", (state) => {
     if (state.phase === "lobby") ui.view = "lobby";
     else ui.view = "game";
   }
-  if (!state.yourTurn && !state.pitouPicking) {
+  if (!state.yourTurn && !state.pitouPicking && !state.discardPending) {
     ui.selectedInstanceId = null;
     ui.mode = null;
     ui.targetId = null;
     ui.gravePicks = [];
+  }
+  if (state.discardPending) {
+    ui.mode = "discard";
+    if (
+      !state.discardHand?.some((c) => c.instanceId === ui.selectedInstanceId)
+    ) {
+      ui.selectedInstanceId = null;
+    }
+  } else if (ui.mode === "discard") {
+    ui.mode = null;
   }
   if (state.phase !== "result") ui.carryPickId = null;
   if (state.announce?.id && state.announce.id !== ui.announceId) {
@@ -473,7 +483,7 @@ function renderHowtoTab() {
     <div class="panel howto">
       <div class="section-title">試合の流れ</div>
       <ol class="howto-list">
-        <li>全員に手札が<strong>3枚</strong>配られる（必ず「渡せるカード」が1枚以上入る）</li>
+        <li>全員に手札が<strong>3枚</strong>配られる（必ず「渡せるカード」が1枚以上入る。半沢直樹・倍倍Fightは含めない）</li>
         <li>最初に酒を持つ人は、これまでの<strong>累計杯数が少ない人ほど出やすい</strong></li>
         <li>酒を持っている人の番。カードを1枚使うか、「負けを認める」</li>
         <li>酒を渡せたら次の人へ。渡せない／負けたらその人が飲む</li>
@@ -498,7 +508,7 @@ function renderHowtoTab() {
         <li><strong>ステルス・クロック・時限爆弾</strong>は、使ったその瞬間は残り回数を減らさない</li>
         <li><strong>エスコン</strong>は使った人にだけ効く（他の人の「自分の番継続」はそのまま）</li>
         <li><strong>無敵</strong>の人が負けても、本人は飲まず両隣が飲む</li>
-        <li>手札が<strong>0枚</strong>のまま酒が来ると自動負け</li>
+        <li><strong>効果なし×2</strong>は無敵・免除を貫通して他全員に飲ませる</li>
       </ul>
     </div>
   `;
@@ -699,6 +709,30 @@ function renderModals() {
           ui.targetId && ui.exchangeMyId ? "" : "disabled"
         }>交換する</button>
         <button class="btn ghost" id="cancel-mode">キャンセル</button>
+      </div>
+    </div></div>`;
+  }
+
+  if (ui.mode === "discard" && s.discardPending) {
+    const opts = s.discardHand || [];
+    html += `<div class="modal"><div class="sheet">
+      <div class="section-title">乗り換え：1枚捨てる</div>
+      <p class="sub" style="margin-top:0">引いたカードも含めて、捨てる1枚を選んでください。</p>
+      <div class="hand">${
+        opts
+          .map((c) =>
+            cardButton(c, {
+              selected: ui.selectedInstanceId === c.instanceId,
+              dataAttr: "data-discard",
+              allowUnusable: true,
+            })
+          )
+          .join("") || "<p class='sub'>なし</p>"
+      }</div>
+      <div class="row" style="margin-top:12px">
+        <button class="btn" id="confirm-discard" ${
+          ui.busy || !ui.selectedInstanceId ? "disabled" : ""
+        }>捨てる</button>
       </div>
     </div></div>`;
   }
@@ -1264,6 +1298,17 @@ function bind() {
       theirCardId: ui.exchangeTheirId,
     })
   );
+
+  app.querySelectorAll("[data-discard]").forEach((b) =>
+    b.addEventListener("click", () => {
+      ui.selectedInstanceId = b.getAttribute("data-discard");
+      render();
+    })
+  );
+  app.querySelector("#confirm-discard")?.addEventListener("click", () => {
+    if (!ui.selectedInstanceId) return;
+    emit("pick_discard", { instanceId: ui.selectedInstanceId });
+  });
 }
 
 render();

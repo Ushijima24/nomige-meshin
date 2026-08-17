@@ -297,6 +297,63 @@ function canAffect(room, targetId) {
   return (t.stealthTurns || 0) <= 0;
 }
 
+function rotateHandsClockwise(room) {
+  let list = playerList(room);
+  if (room.taimanPair) {
+    const pair = new Set(room.taimanPair);
+    list = list.filter((p) => pair.has(p.id));
+  }
+  if (list.length < 2) return { error: "回せる相手がいません" };
+  const hands = list.map((p) => p.hand);
+  for (let i = 0; i < list.length; i++) {
+    const from = (i - 1 + list.length) % list.length;
+    list[i].hand = hands[from];
+    list[i].koukaNashiCount = koukaNashiInHand(list[i]);
+  }
+  return { ok: true, names: list.map((p) => p.name) };
+}
+
+function canPickPendingDiscard(room, actorId) {
+  const pend = room.pending;
+  if (!pend || pend.type !== "discard") return false;
+  return actorId === pend.actorId;
+}
+
+export function pickDiscard(room, actorId, instanceId) {
+  if (room.phase !== "playing") return { error: "プレイ中のみ" };
+  if (!canPickPendingDiscard(room, actorId)) {
+    return { error: "捨てるカードの選択待ちではありません" };
+  }
+  const player = getP(room, room.pending.playerId);
+  if (!player) {
+    room.pending = null;
+    return { error: "プレイヤーなし" };
+  }
+  const gone = removeFromHand(player, instanceId);
+  if (!gone) return { error: "そのカードは持っていません" };
+  discardToGrave(room, [gone], player.id, "norikae");
+  player.koukaNashiCount = koukaNashiInHand(player);
+  pushLog(
+    room,
+    `🚃 ${player.name} が「${CARDS[gone.cardId]?.name || "?"}」を捨てた`
+  );
+  room.pending = null;
+  maybeAutoLoseEmptyHand(room);
+  return { ok: true };
+}
+
+export function autoPickDiscard(room) {
+  if (room.pending?.type !== "discard") return { ok: true };
+  const player = getP(room, room.pending.playerId);
+  const hand = player?.hand || [];
+  if (!hand.length) {
+    room.pending = null;
+    return { ok: true };
+  }
+  const pick = hand[(Math.random() * hand.length) | 0];
+  return pickDiscard(room, room.pending.actorId, pick.instanceId);
+}
+
 function pushLog(room, text, extra = {}) {
   const entry = {
     id: uid(),
@@ -459,9 +516,9 @@ function multiplyAmount(room, n) {
   room.amount = Math.max(1, Math.round(room.amount * n));
 }
 
-function pushDrink(drinks, playerId, cups, reason, room) {
+function pushDrink(drinks, playerId, cups, reason, room, { pierce = false } = {}) {
   const p = getP(room, playerId);
-  if (p?.bomberImmune) {
+  if (p?.bomberImmune && !pierce) {
     pushLog(room, `💫 ${p.name} は【免除】でスキップ（${reason}）`);
     return;
   }
@@ -573,7 +630,8 @@ function applyDrink(room, loserId, { forced = false, partnerIds = [] } = {}) {
           o.id,
           amount * 2,
           `効果なし×2（${p.name}）`,
-          room
+          room,
+          { pierce: true }
         );
       }
       pushLog(room, `📦 ${p.name} の効果なし×2発動！他全員に倍量`);
@@ -998,6 +1056,7 @@ export function resolveDisconnectedPlayer(room, playerId) {
   if (room.phase !== "playing") return { ok: true };
 
   if (room.pitouControllerId === playerId && room.holderId !== playerId) {
+    if (room.pending?.type === "discard") autoPickDiscard(room);
     room.pitouControllerId = null;
     pushLog(room, `🔌 ${p.name} が切断したためネフェルピトー解除`);
     setAnnounce(room, {
@@ -1016,16 +1075,23 @@ export function resolveDisconnectedPlayer(room, playerId) {
     const pitou =
       pitouId && pitouId !== playerId ? getP(room, pitouId) : null;
     if (pitou && pitou.connected !== false) return { ok: true };
+    if (room.pending?.type === "discard") autoPickDiscard(room);
     room.pitouControllerId = null;
     pushLog(room, `🔌 ${p.name} が切断したため負け`);
     return admitLose(room, playerId);
   }
+  if (room.pending?.actorId === playerId) autoPickDiscard(room);
   return { ok: true };
 }
 
 /** 今カードを使うべきボットID（酒持ち／ネフェルピトー） */
 export function listBotsNeedingAction(room) {
   if (room.phase !== "playing") return [];
+  if (room.pending?.type === "discard") {
+    const actor = getP(room, room.pending.actorId);
+    if (actor?.isBot) return [actor.id];
+    return [];
+  }
   const holder = getP(room, room.holderId);
   const pitou = room.pitouControllerId
     ? getP(room, room.pitouControllerId)
@@ -1046,6 +1112,11 @@ export function playAsBot(room, botId) {
   const bot = getP(room, botId);
   if (!bot?.isBot) return { error: "botではない" };
   if (room.phase !== "playing") return { error: "プレイ中のみ" };
+
+  if (room.pending?.type === "discard") {
+    room.botThinking = null;
+    return autoPickDiscard(room);
+  }
 
   const controlling =
     room.pitouControllerId === botId &&
@@ -1096,6 +1167,9 @@ export function playAsBot(room, botId) {
     "taiman",
     "unmei",
     "escon",
+    "sentakuki",
+    "baibai_fight",
+    "norikae",
     "bochi_saguri",
     "copy",
     "nozoki",
@@ -1364,10 +1438,11 @@ export function playCard(room, actorId, instanceId, opts = {}) {
   }
 
   // ランダム渡しは手札を動かす前に判定（失敗時の回数券増殖を防ぐ）
-  if (
-    ["kaisuken", "howitt", "hanryu", "baika", "bommer"].includes(effectId) &&
-    !pickRandom(room, playerId)
-  ) {
+  const randomPassIds = ["kaisuken", "howitt", "hanryu", "baika", "bommer"];
+  if (effectId === "baibai_fight" && (room.amount || 1) > 1) {
+    randomPassIds.push("baibai_fight");
+  }
+  if (randomPassIds.includes(effectId) && !pickRandom(room, playerId)) {
     return { error: "渡せる相手がいません" };
   }
 
@@ -1380,9 +1455,12 @@ export function playCard(room, actorId, instanceId, opts = {}) {
     def.id === "kaisuken" || (def.id === "copy" && effectId === "kaisuken");
   const kaisukenFrom = def.id === "copy" ? 2 : used.usesLeft ?? 2;
   const kaisukenLeft = playsAsKaisuken ? kaisukenFrom - 1 : 0;
+  const baibaiStays = def.id === "baibai_fight" && (room.amount || 1) > 1;
 
   const graveIds = [];
-  if (def.id === "kaisuken" && kaisukenLeft > 0) {
+  if (baibaiStays) {
+    player.hand.push(used);
+  } else if (def.id === "kaisuken" && kaisukenLeft > 0) {
     const clone = { ...used, instanceId: uid() };
     discardToGrave(room, [clone], playerId, "kaisuken-use");
     graveIds.push(clone.instanceId);
@@ -1530,6 +1608,14 @@ export function playCard(room, actorId, instanceId, opts = {}) {
 
   maybeAutoLoseEmptyHand(room);
 
+  if (
+    result.pendingDiscard &&
+    room.phase === "playing" &&
+    (player.hand || []).length > 0
+  ) {
+    room.pending = { type: "discard", playerId, actorId };
+  }
+
   return { ok: true, ...result };
 }
 
@@ -1650,6 +1736,42 @@ function resolveEffect(room, playerId, effectId, opts) {
       if (!rid) return { error: "渡せる相手がいません" };
       passDrink(room, rid, playerId);
       return {};
+    }
+    case "baibai_fight": {
+      const boosted = (room.amount || 1) > 1;
+      multiplyAmount(room, 2);
+      if (boosted) {
+        const rid = pickRandom(room, playerId);
+        if (!rid) return { error: "渡せる相手がいません" };
+        pushLog(room, `🥊 倍倍Fight！増やされた酒をさらに倍にして渡す（カードは残る）`);
+        passDrink(room, rid, playerId);
+        return { announceBody: "増やされた酒を倍にして渡した（カードは残る）" };
+      }
+      pushLog(room, `🥊 倍倍Fight！酒を倍にした`);
+      return { announceBody: "酒を倍にした" };
+    }
+    case "sentakuki": {
+      const rotated = rotateHandsClockwise(room);
+      if (rotated.error) return rotated;
+      pushLog(
+        room,
+        `🌀 洗濯機！手札を時計回り（${(rotated.names || []).join("→")}→…）`
+      );
+      return { announceBody: "全員の手札を時計回りに回した" };
+    }
+    case "norikae": {
+      const drawn = drawCard(room, playerId);
+      giveCard(room, player, drawn);
+      const drawnName = CARDS[drawn.cardId]?.name || "?";
+      if (!(player.hand || []).length) {
+        pushLog(room, `🚃 乗り換え！${drawnName} を引いた（捨てるカードなし）`);
+        return { announceBody: `${drawnName} を引いた` };
+      }
+      pushLog(room, `🚃 乗り換え！${drawnName} を引いた → 1枚捨てる`);
+      return {
+        pendingDiscard: true,
+        announceBody: `${drawnName} を引いた。手札から1枚捨ててください`,
+      };
     }
     case "jigen_bakudan": {
       // このカードのあと「3枚目」→ 次の3回のカード使用で爆発
@@ -1835,6 +1957,9 @@ function clearBond(room, playerId) {
 
 export function admitLose(room, playerId) {
   if (room.phase !== "playing") return { error: "プレイ中のみ" };
+  if (room.pending?.type === "discard") {
+    return { error: "先に捨てるカードを選んでください" };
+  }
   const holderId = room.holderId;
   const asPitou =
     !!room.pitouControllerId &&
@@ -1938,6 +2063,10 @@ export function publicState(room, viewerId) {
   if (room.bombCountdown != null) {
     fieldStatuses.push(`時限爆弾 残${room.bombCountdown}`);
   }
+  if (room.pending?.type === "discard") {
+    const dn = getP(room, room.pending.playerId)?.name || "?";
+    fieldStatuses.push(`乗り換え ${dn} が捨て札を選択中`);
+  }
   const exempt = playerList(room).filter((p) => p.bomberImmune);
   if (exempt.length) {
     fieldStatuses.push(
@@ -2015,6 +2144,19 @@ export function publicState(room, viewerId) {
       room.peekView?.viewerId === viewerId ||
       room.peekView?.extraViewerId === viewerId
         ? room.peekView
+        : null,
+    discardPending: !!(
+      room.phase === "playing" &&
+      room.pending?.type === "discard" &&
+      viewerId === room.pending.actorId
+    ),
+    discardHand:
+      room.phase === "playing" &&
+      room.pending?.type === "discard" &&
+      viewerId === room.pending.actorId
+        ? (getP(room, room.pending.playerId)?.hand || []).map((h) =>
+            publicCard(h.cardId, h.instanceId, { usesLeft: h.usesLeft })
+          )
         : null,
     avatars: AVATARS,
   };

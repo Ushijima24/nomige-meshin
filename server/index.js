@@ -612,6 +612,18 @@ io.of("/trap").on("connection", (socket) => {
     kickTrapBots(room);
   });
 
+  socket.on("pick_discard", (data, cb) => {
+    const sess = trapSessions.get(socket.id);
+    if (!sess) return cb?.({ ok: false, error: "未参加" });
+    const room = trap.getRoom(sess.roomCode);
+    if (!room) return cb?.({ ok: false, error: "ルームなし" });
+    const result = trap.pickDiscard(room, sess.playerId, data?.instanceId);
+    if (result.error) return cb?.({ ok: false, error: result.error });
+    cb?.({ ok: true });
+    emitTrap(room);
+    kickTrapBots(room);
+  });
+
   socket.on("admit_lose", (_data, cb) => {
     const sess = trapSessions.get(socket.id);
     if (!sess) return cb?.({ ok: false, error: "未参加" });

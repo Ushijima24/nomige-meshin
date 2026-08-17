@@ -75,6 +75,13 @@ export const CARDS = {
     oncePerMatch: true,
     unusable: true,
   },
+  sentakuki: {
+    id: "sentakuki",
+    name: "洗濯機",
+    rank: "S",
+    effect: "全員の手札を時計回りに回す",
+    keepsTurn: true,
+  },
   gouyoku: {
     id: "gouyoku",
     name: "強欲なニコル",
@@ -136,6 +143,14 @@ export const CARDS = {
       "自分がこの試合中に使う「自分ターン継続」カードを、誰かランダムな人に渡すにする（他の人には効かない）",
     keepsTurn: true,
   },
+  baibai_fight: {
+    id: "baibai_fight",
+    name: "倍倍Fight",
+    rank: "A",
+    effect:
+      "お酒が増やされて自分のターンに回ってきた時は倍にして誰かランダムに渡す（このカードは消えない）。何もない時はただ酒を倍にする",
+    keepsTurn: true,
+  },
   present: {
     id: "present",
     name: "プレゼント",
@@ -163,7 +178,6 @@ export const CARDS = {
     name: "半沢直樹",
     rank: "C",
     effect: "手札を全て捨てるとこの酒を回してきた人に返すことができる",
-    isPassCard: true,
   },
   unmei: {
     id: "unmei",
@@ -189,6 +203,14 @@ export const CARDS = {
     needsTarget: true,
     needsExchange: true,
     keepsTurn: true,
+  },
+  norikae: {
+    id: "norikae",
+    name: "乗り換え",
+    rank: "B",
+    effect: "1枚ドローして、手札から1枚捨てる",
+    keepsTurn: true,
+    needsDiscardPick: true,
   },
   nocount: {
     id: "nocount",
@@ -224,7 +246,7 @@ export const CARDS = {
     name: "効果なし",
     rank: "C",
     effect:
-      "2枚集めると勝敗に関わらず自分以外全員に倍量飲ませられる、試合が終わったあと発動",
+      "2枚集めると勝敗に関わらず自分以外全員に倍量飲ませられる（無敵・免除も貫通）、試合が終わったあと発動",
     unusable: true,
   },
   aho: {
@@ -288,6 +310,7 @@ export function publicCard(cardId, instanceId, extra = {}) {
     needsTarget: !!c.needsTarget,
     needsGravePick: !!c.needsGravePick,
     needsExchange: !!c.needsExchange,
+    needsDiscardPick: !!c.needsDiscardPick,
     dualUse: !!c.dualUse,
     unusable: !!c.unusable,
     usesLeft: extra.usesLeft,
