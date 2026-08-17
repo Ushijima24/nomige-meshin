@@ -264,10 +264,10 @@ function rulesBodyHtml() {
     <div class="panel">
       <div class="section-title">1ラウンドの流れ</div>
       <ol class="rules">
-        <li>GMがお題（ランキング）を1つ選ぶ。そのラウンドは全員同じお題</li>
+        <li>GMがお題（ランキング）を1つ選ぶ</li>
         <li><strong>1回目</strong>：全員が同時に項目名を入力。順位がカードになる（例: 3位 → 3点）</li>
-        <li>GMが回答を確認（合っていれば順位、違えば圏外など）</li>
-        <li><strong>2回目</strong>：同じお題でもう1枚引くか、ステイ。1回目に出た項目は使えない</li>
+        <li>AIが判定できないものは、主催者が自分も答えたあとでGMが順位を選ぶ</li>
+        <li><strong>2回目</strong>：全員自動で点数になったら同じお題。GMが順位を選んだら別お題（1回戦の点数は持ち越し）</li>
         <li>勝敗と飲酒を見て、次のラウンド or ロビーへ</li>
       </ol>
     </div>
@@ -280,13 +280,6 @@ function rulesBodyHtml() {
         <li>同点なら該当者みんな。誰かが21のとき、敗者は<strong>2杯</strong></li>
       </ul>
       <p class="credit">データ出典: <a href="https://ranking.net/" target="_blank" rel="noopener">みんなのランキング</a></p>
-    </div>
-    <div class="panel">
-      <div class="section-title">覚えておくと便利</div>
-      <ul class="rules">
-        <li>試合中もいつでも「遊び方」からこの説明を開ける</li>
-        <li>別アプリを開いても、同じブラウザなら戻ってこれる</li>
-      </ul>
     </div>`;
 }
 
@@ -365,13 +358,23 @@ function renderPickTopic() {
   const s = ui.state;
   if (!s.isHost) {
     return `<div class="panel">
-      <div class="section-title">お題選び中</div>
-      <p class="sub">GMがランキングを選んでいます。決まったら全員で同時に答えます。</p>
+      <div class="section-title">${s.pickingDraw2 ? "2回戦のお題選び中" : "お題選び中"}</div>
+      <p class="sub">${
+        s.pickingDraw2
+          ? "GMが2回戦の別お題を選んでいます。1回戦の点数はそのまま持ち越しです。"
+          : "GMがランキングを選んでいます。決まったら全員で同時に答えます。"
+      }</p>
     </div>`;
   }
   return `<div class="panel">
-    <div class="section-title">お題を選ぶ（2回戦まで固定）</div>
-    <p class="sub" style="margin-top:0">5件から選ぶか、検索・更新してね。</p>
+    <div class="section-title">${
+      s.pickingDraw2 ? "2回戦のお題を選ぶ（1回戦の点数は持ち越し）" : "お題を選ぶ"
+    }</div>
+    <p class="sub" style="margin-top:0">${
+      s.pickingDraw2
+        ? "GMが順位を選んだので、2回戦は別のお題です。5件から選ぶか、検索・更新してね。"
+        : "5件から選ぶか、検索・更新してね。"
+    }</p>
     <input type="text" id="search-q" value="${escapeHtml(ui.searchQ)}" placeholder="例: ミスチル　動物園　卓球" />
     <div class="row" style="margin-bottom:10px">
       <button class="btn ghost" id="search-topics" ${ui.busy ? "disabled" : ""}>検索</button>
@@ -417,7 +420,9 @@ function renderAnswering() {
       <p class="sub" style="margin-top:0">${
         s.draw === 1
           ? "全員同時。このランキングに出てくる名前を書いてね"
-          : "同じお題でもう一つ答えるか、今の合計でステイ"
+          : s.sameTopicDraw2
+            ? "同じお題でもう一つ答えるか、今の合計でステイ"
+            : "別のお題でもう一つ答えるか、今の合計でステイ"
       }</p>
       <input type="text" id="answer" value="${escapeHtml(ui.answer)}" placeholder="例: シカマル" maxlength="40" />
       <div class="row">
@@ -588,7 +593,13 @@ function renderGame() {
     }">← パーティー</a>
     <h1>ランキングBJ</h1>
     ${rulesBtnHtml()}
-    <p class="sub">試合 ${s.match}　${s.draw ? `${s.draw}回目 / 2` : "お題選び"}　コード ${escapeHtml(s.code)}</p>
+    <p class="sub">試合 ${s.match}　${
+      s.pickingDraw2
+        ? "2回戦のお題選び"
+        : s.draw
+          ? `${s.draw}回目 / 2`
+          : "お題選び"
+    }　コード ${escapeHtml(s.code)}</p>
     <div class="panel">
       <div class="section-title">みんなの手札</div>
       ${playersHtml(s.players)}

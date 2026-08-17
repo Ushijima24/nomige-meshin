@@ -89,6 +89,9 @@ export function createRoom(name, avatar) {
     draw: 0,
     dealRevealed: false,
     bannedNames: new Set(),
+    draw1NeededGm: false,
+    pendingDraw2: false,
+    sameTopicDraw2: false,
   };
   room.players.set(
     playerId,
@@ -118,6 +121,9 @@ export function createFromParty(partySnap) {
     draw: 0,
     dealRevealed: false,
     bannedNames: new Set(),
+    draw1NeededGm: false,
+    pendingDraw2: false,
+    sameTopicDraw2: false,
     partyOwned: true,
   };
 
@@ -237,8 +243,9 @@ export function removeBot(room, hostId, botId) {
   return { ok: true };
 }
 
-function refillTopics(room) {
-  room.topicChoices = pickCandidates([], room.lastChoiceSlugs, 5);
+function refillTopics(room, extraExclude = []) {
+  const exclude = extraExclude.filter(Boolean);
+  room.topicChoices = pickCandidates(exclude, room.lastChoiceSlugs, 5);
   room.lastChoiceSlugs = room.topicChoices.map((c) => c.slug);
 }
 
@@ -257,6 +264,9 @@ function resetHands(room, { keepTopic = false } = {}) {
   room.dealRevealed = false;
   room.draw = 0;
   room.bannedNames = new Set();
+  room.draw1NeededGm = false;
+  room.pendingDraw2 = false;
+  room.sameTopicDraw2 = false;
   if (!keepTopic) room.currentTopic = null;
 }
 
@@ -285,12 +295,34 @@ function isBanned(room, item) {
   return names.some((n) => room.bannedNames.has(n));
 }
 
+function hostHasActedThisDraw(room) {
+  const host = getP(room, room.hostId);
+  if (!host || host.isBot) return true;
+  if (host.actedThisDraw) return true;
+  if (room.draw === 2 && (host.stood || host.busted || host.total === 21)) return true;
+  return false;
+}
+
+function syncPlayStep(room) {
+  if (room.judgeQueue.length && hostHasActedThisDraw(room)) {
+    room.playStep = "gm_judge";
+  } else {
+    room.playStep = "answering";
+  }
+}
+
 function beginDraw(room, draw) {
   room.draw = draw;
   room.dealRevealed = false;
   room.judgeQueue = [];
   room.playStep = "answering";
-  if (draw === 2) collectBanned(room);
+  room.pendingDraw2 = false;
+  if (draw === 1) {
+    room.draw1NeededGm = false;
+    room.sameTopicDraw2 = false;
+  }
+  if (draw === 2 && room.sameTopicDraw2) collectBanned(room);
+  else if (draw === 2) room.bannedNames = new Set();
   for (const p of alivePlayers(room)) {
     if (draw === 2 && (p.stood || p.busted || p.total === 21)) {
       p.actedThisDraw = true;
@@ -303,12 +335,8 @@ function beginDraw(room, draw) {
 }
 
 function maybeAdvance(room) {
-  if (playersWhoNeedAct(room).length) {
-    room.playStep = room.judgeQueue.length ? "gm_judge" : "answering";
-    return;
-  }
-  if (room.judgeQueue.length) {
-    room.playStep = "gm_judge";
+  if (playersWhoNeedAct(room).length || room.judgeQueue.length) {
+    syncPlayStep(room);
     return;
   }
   room.dealRevealed = true;
@@ -320,6 +348,14 @@ function maybeAdvance(room) {
       finishMatch(room);
       return;
     }
+    if (room.draw1NeededGm) {
+      room.pendingDraw2 = true;
+      room.sameTopicDraw2 = false;
+      room.playStep = "pick_topic";
+      refillTopics(room, [room.currentTopic?.slug]);
+      return;
+    }
+    room.sameTopicDraw2 = true;
     beginDraw(room, 2);
     return;
   }
@@ -364,6 +400,7 @@ export async function pickTopic(room, hostId, slug) {
     return { error: e.message || "ランキングを取得できませんでした" };
   }
   const entry = getCatalogEntry(slug);
+  const forDraw2 = !!room.pendingDraw2;
   room.currentTopic = {
     slug,
     title: data.title || entry?.title || slug,
@@ -371,7 +408,13 @@ export async function pickTopic(room, hostId, slug) {
     url: `https://ranking.net/rankings/${slug}`,
     items: data.items,
   };
-  beginDraw(room, 1);
+  if (forDraw2) {
+    room.pendingDraw2 = false;
+    room.sameTopicDraw2 = false;
+    beginDraw(room, 2);
+  } else {
+    beginDraw(room, 1);
+  }
   return { ok: true };
 }
 
@@ -428,7 +471,7 @@ export function submitAnswer(room, playerId, text) {
     candidates: suggestCandidates(answer, room.currentTopic.items, 15),
   });
   p.actedThisDraw = true;
-  room.playStep = "gm_judge";
+  maybeAdvance(room);
   return { ok: true, auto: false };
 }
 
@@ -469,6 +512,7 @@ export function gmConfirm(room, hostId, { itemKey, miss } = {}) {
       return { error: "1回目に出た項目は2回目使えません" };
     }
     applyCard(room, p, item);
+    if (room.draw === 1) room.draw1NeededGm = true;
   }
   room.judgeQueue.shift();
   maybeAdvance(room);
@@ -596,6 +640,8 @@ export function publicState(room, viewerId) {
     match: room.match,
     draw: room.draw,
     dealRevealed: room.dealRevealed,
+    pickingDraw2: !!room.pendingDraw2,
+    sameTopicDraw2: !!room.sameTopicDraw2,
     you: viewerId,
     isHost: !!isHost,
     canAnswer: needAct.has(viewerId) && (room.playStep === "answering" || room.playStep === "gm_judge"),

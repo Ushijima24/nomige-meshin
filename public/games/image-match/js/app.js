@@ -294,7 +294,6 @@ function rulesBodyHtml() {
       <ul style="margin:0;padding-left:1.2em;line-height:1.55;font-weight:700;font-size:0.9rem">
         <li>主催者だけがグループまとめと次の問題へ進める</li>
         <li>同人数の少数派が複数あるときは投票などで決まる場合あり</li>
-        <li>別アプリを開いても、同じブラウザなら戻ってこれる</li>
       </ul>
     </div>`;
 }
