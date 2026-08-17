@@ -1363,30 +1363,32 @@ export function playCard(room, actorId, instanceId, opts = {}) {
     if (ex.error) return ex;
   }
 
+  // ランダム渡しは手札を動かす前に判定（失敗時の回数券増殖を防ぐ）
+  if (
+    ["kaisuken", "howitt", "hanryu", "baika", "bommer"].includes(effectId) &&
+    !pickRandom(room, playerId)
+  ) {
+    return { error: "渡せる相手がいません" };
+  }
+
   // 手札から除去
   const used = removeFromHand(player, instanceId);
   if (!used) return { error: "手札エラー" };
 
-  // 回数券: 残回数があれば手札に戻す。コピー／交換後は新品2回として扱う。
-  let returnedKaisukenInst = null;
-  if (def.id === "kaisuken" || (def.id === "copy" && effectId === "kaisuken")) {
-    const fromFresh = def.id === "copy" ? 2 : used.usesLeft ?? 2;
-    const left = fromFresh - 1;
-    if (left > 0) {
-      returnedKaisukenInst = makeInstance("kaisuken", { usesLeft: left });
-      player.hand.push(returnedKaisukenInst);
-      pushLog(room, `🎫 回数券の残り ${left} 回`);
-    }
-  }
+  // コピーした回数券は常に新品2回。残回数の返却は効果成功後だけ。
+  const playsAsKaisuken =
+    def.id === "kaisuken" || (def.id === "copy" && effectId === "kaisuken");
+  const kaisukenFrom = def.id === "copy" ? 2 : used.usesLeft ?? 2;
+  const kaisukenLeft = playsAsKaisuken ? kaisukenFrom - 1 : 0;
 
   const graveIds = [];
-  if (!returnedKaisukenInst || def.id !== "kaisuken") {
-    discardToGrave(room, [used], playerId, "play");
-    graveIds.push(used.instanceId);
-  } else {
+  if (def.id === "kaisuken" && kaisukenLeft > 0) {
     const clone = { ...used, instanceId: uid() };
     discardToGrave(room, [clone], playerId, "kaisuken-use");
     graveIds.push(clone.instanceId);
+  } else {
+    discardToGrave(room, [used], playerId, "play");
+    graveIds.push(used.instanceId);
   }
 
   player.cardsUsedThisMatch = (player.cardsUsedThisMatch || 0) + 1;
@@ -1395,9 +1397,6 @@ export function playCard(room, actorId, instanceId, opts = {}) {
   const result = resolveEffect(room, playerId, effectId, opts);
 
   if (result.error) {
-    if (returnedKaisukenInst) {
-      removeFromHand(player, returnedKaisukenInst.instanceId);
-    }
     if (!player.hand.some((h) => h.instanceId === used.instanceId)) {
       player.hand.push(used);
     }
@@ -1411,6 +1410,13 @@ export function playCard(room, actorId, instanceId, opts = {}) {
       (player.cardsUsedThisMatch || 1) - 1
     );
     return result;
+  }
+
+  let returnedKaisukenInst = null;
+  if (kaisukenLeft > 0) {
+    returnedKaisukenInst = makeInstance("kaisuken", { usesLeft: kaisukenLeft });
+    player.hand.push(returnedKaisukenInst);
+    pushLog(room, `🎫 回数券の残り ${kaisukenLeft} 回`);
   }
 
   if (effectId === "nocount") {
