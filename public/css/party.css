@@ -81,6 +81,10 @@ input[type="text"] {
   cursor: pointer;
 }
 .btn:disabled { opacity: 0.45; cursor: not-allowed; }
+.btn.join {
+  background: linear-gradient(120deg, #5ef0e0, #4ea8ff);
+  color: #04233a;
+}
 .btn.ghost {
   background: transparent;
   border: 1px solid rgba(255,255,255,0.25);

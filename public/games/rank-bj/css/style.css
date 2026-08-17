@@ -94,6 +94,10 @@ input[type="text"] {
   color: #2a1400;
 }
 .btn:disabled { opacity: 0.45; cursor: not-allowed; }
+.btn.join {
+  background: linear-gradient(135deg, #5ef0e0, #4ea8ff);
+  color: #04233a;
+}
 .btn.danger {
   background: linear-gradient(135deg, #ff5c7a, #c41e3a);
   color: #fff;

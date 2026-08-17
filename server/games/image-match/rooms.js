@@ -1,6 +1,6 @@
 import { shuffleDeck, publicQuestion, alignDeckIfTesting } from "./questions.js";
 
-const AVATARS = ["🦊", "🐻", "🐱", "🐸", "🐼", "🐷", "🦁", "🐨", "🐵", "🐰"];
+const AVATARS = ["🦊", "🐻", "🐱", "🐸", "🐼", "🐷", "🦁", "🐨", "🐵", "🐰", "🐯", "🐮", "🐶", "🐺", "🦝", "🐔", "🐧", "🦄", "🐙", "🦖", "👻", "🎃", "👽", "🤖"];
 
 const BOT_NAMES = [
   "ダミー太郎",

@@ -6,7 +6,7 @@ import {
 } from "./catalog.js";
 import { matchItems, suggestCandidates } from "./match.js";
 
-const AVATARS = ["🦊", "🐻", "🐱", "🐸", "🐼", "🐷", "🦁", "🐨", "🐵", "🐰"];
+const AVATARS = ["🦊", "🐻", "🐱", "🐸", "🐼", "🐷", "🦁", "🐨", "🐵", "🐰", "🐯", "🐮", "🐶", "🐺", "🦝", "🐔", "🐧", "🦄", "🐙", "🦖", "👻", "🎃", "👽", "🤖"];
 const BOT_NAMES = [
   "ダミー太郎",
   "ダミー花子",

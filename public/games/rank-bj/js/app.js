@@ -1,4 +1,4 @@
-const AVATARS = ["🦊", "🐻", "🐱", "🐸", "🐼", "🐷", "🦁", "🐨", "🐵", "🐰"];
+const AVATARS = ["🦊", "🐻", "🐱", "🐸", "🐼", "🐷", "🦁", "🐨", "🐵", "🐰", "🐯", "🐮", "🐶", "🐺", "🦝", "🐔", "🐧", "🦄", "🐙", "🦖", "👻", "🎃", "👽", "🤖"];
 const socket = io("/rank-bj", {
   transports: ["websocket", "polling"],
   reconnection: true,
@@ -301,7 +301,7 @@ function renderHome() {
       </div>
       <label style="margin-top:14px">ルームコードで参加</label>
       <input type="text" id="code" maxlength="4" value="${escapeHtml(ui.joinCode)}" placeholder="ABCD" style="text-transform:uppercase" />
-      <button class="btn ghost" id="join" ${ui.busy ? "disabled" : ""}>参加する</button>
+      <button class="btn join" id="join" ${ui.busy ? "disabled" : ""}>参加する</button>
       ${ui.error ? `<div class="error">${escapeHtml(ui.error)}</div>` : ""}
     </div>
     <div class="panel">
