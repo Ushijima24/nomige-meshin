@@ -277,6 +277,7 @@ function rulesBodyHtml() {
         <li>合計<strong>21ぴったり</strong>が理想</li>
         <li><strong>22位以上</strong>、または合計<strong>22以上</strong>はバースト（順位は見える）</li>
         <li>バーストした人が飲む。誰もバーストしていなければ<strong>合計が最小</strong>の人が飲む</li>
+        <li><strong>1回戦でバースト</strong>（22位以上など）したら<strong>2杯</strong></li>
         <li>同点なら該当者みんな。誰かが21のとき、敗者は<strong>2杯</strong></li>
       </ul>
       <p class="credit">データ出典: <a href="https://ranking.net/" target="_blank" rel="noopener">みんなのランキング</a></p>
@@ -504,7 +505,7 @@ function renderResult() {
   const r = s.result || {};
   const reason =
     r.reason === "burst"
-      ? "バーストした人が飲み"
+      ? "バーストした人が飲み（1回戦バーストは2杯）"
       : "誰もバーストしなかったので、合計が一番小さい人が飲み";
   const extra = r.has21 ? " ／ 21ぴったりがいるので敗者は2杯" : "";
   return `${topicPanel()}<div class="panel">

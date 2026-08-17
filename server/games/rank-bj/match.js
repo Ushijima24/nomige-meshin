@@ -1,20 +1,10 @@
 /** 名前のゆらぎを潰して部分一致判定する */
+import { readingFits, normalizeKana, toHiragana } from "./readings.js";
 
-const HIRA_START = 0x3041;
-
-export function toHiragana(s) {
-  return String(s || "").replace(/[\u30a1-\u30f6]/g, (ch) =>
-    String.fromCharCode(ch.charCodeAt(0) - 0x60)
-  );
-}
+export { toHiragana };
 
 export function normalize(s) {
-  return toHiragana(
-    String(s || "")
-      .normalize("NFKC")
-      .replace(/[ー−–—ｰ~〜・･.\s\u3000'"「」『』【】\[\]()（）]/g, "")
-      .toLowerCase()
-  );
+  return normalizeKana(s);
 }
 
 export function aliasesOf(name) {
@@ -41,7 +31,9 @@ function scoreMatch(query, item) {
   const q = normalize(query);
   if (!q) return 0;
   let best = 0;
+  if (readingFits(item.name, query)) best = 120;
   for (const n of namesFor(item)) {
+    if (n !== item.name && readingFits(n, query)) best = Math.max(best, 115);
     const nn = normalize(n);
     if (!nn) continue;
     if (nn === q) best = Math.max(best, 100 + Math.min(nn.length, 20));
@@ -77,9 +69,10 @@ export function suggestCandidates(query, items, limit = 15) {
           if (qn[0] && nn.includes(qn[0])) score = Math.max(score, 8);
         }
       }
+      if (readingFits(item.name, q)) score = Math.max(score, 120);
       return { item, score };
     })
-    .filter((x) => x.score > 0)
+    .filter((x) => x.score >= 40)
     .sort((a, b) => b.score - a.score || a.item.rank - b.item.rank);
   return ranked.slice(0, limit).map((x) => x.item);
 }

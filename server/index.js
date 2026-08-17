@@ -38,6 +38,7 @@ import * as trap from "./games/trap/rooms.js";
 import { CARD_LIST, RANK_RATES, cardLabel } from "./games/trap/cards.js";
 import * as rankBj from "./games/rank-bj/rooms.js";
 import * as party from "./party/rooms.js";
+import { warmupReadings } from "./games/rank-bj/readings.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const publicDir = path.join(__dirname, "..", "public");
@@ -1208,4 +1209,5 @@ httpServer.listen(PORT, "0.0.0.0", () => {
   console.log(`飲みゲーパーティー http://localhost:${PORT}`);
   console.log(`トラップゲーム     http://localhost:${PORT}/games/trap/`);
   console.log(`ランキングBJ       http://localhost:${PORT}/games/rank-bj/`);
+  warmupReadings();
 });

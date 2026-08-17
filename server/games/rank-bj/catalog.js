@@ -2,6 +2,7 @@ import fs from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
 import { aliasesOf } from "./match.js";
+import { warmupReadings, wikiKanaFromExtract } from "./readings.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const seedPath = path.join(__dirname, "catalog.json");
@@ -89,6 +90,61 @@ function decodeHtml(s) {
     .replace(/&nbsp;/g, " ");
 }
 
+async function enrichWikiReadings(items) {
+  const kanjiNames = [
+    ...new Set(
+      items.filter((it) => /[\u4e00-\u9fff]/.test(it.name)).map((it) => it.name)
+    ),
+  ].slice(0, 80);
+  if (!kanjiNames.length) return;
+  const batches = [];
+  for (let i = 0; i < kanjiNames.length; i += 40) {
+    batches.push(kanjiNames.slice(i, i + 40));
+  }
+  const kanaByTitle = new Map();
+  await Promise.all(
+    batches.map(async (batch) => {
+      try {
+        const url =
+          "https://ja.wikipedia.org/w/api.php?action=query&format=json&prop=extracts&exintro=1&explaintext=1&redirects=1" +
+          `&titles=${encodeURIComponent(batch.join("|"))}`;
+        const ctrl = new AbortController();
+        const timer = setTimeout(() => ctrl.abort(), 2500);
+        const res = await fetch(url, {
+          headers: { "User-Agent": UA, Accept: "application/json" },
+          signal: ctrl.signal,
+        });
+        clearTimeout(timer);
+        if (!res.ok) return;
+        const data = await res.json();
+        const pages = data?.query?.pages || {};
+        const redirects = data?.query?.redirects || [];
+        const normalized = data?.query?.normalized || [];
+        const fromTo = new Map();
+        for (const n of normalized) fromTo.set(n.to, n.from);
+        for (const r of redirects) fromTo.set(r.to, fromTo.get(r.from) || r.from);
+        for (const page of Object.values(pages)) {
+          if (!page?.title || page.missing) continue;
+          const kana = wikiKanaFromExtract(page.extract);
+          if (!kana.length) continue;
+          const original = fromTo.get(page.title) || page.title;
+          kanaByTitle.set(page.title, kana);
+          kanaByTitle.set(original, kana);
+        }
+      } catch {
+        // 読みが取れなくてもローカル照合で拾う
+      }
+    })
+  );
+  for (const it of items) {
+    const extra = kanaByTitle.get(it.name);
+    if (!extra?.length) continue;
+    const aliases = new Set(it.aliases || []);
+    extra.forEach((k) => aliases.add(k));
+    it.aliases = [...aliases];
+  }
+}
+
 export async function fetchRanking(slug) {
   const cached = rankingCache.get(slug);
   if (cached && Date.now() - cached.fetchedAt < CACHE_MS) return cached;
@@ -113,6 +169,8 @@ export async function fetchRanking(slug) {
   }
   if (!items.length) throw new Error("このランキングから順位を取れませんでした");
   items.sort((a, b) => a.rank - b.rank);
+  await warmupReadings();
+  await enrichWikiReadings(items);
   const data = { slug, title, items, fetchedAt: Date.now() };
   rankingCache.set(slug, data);
   return data;

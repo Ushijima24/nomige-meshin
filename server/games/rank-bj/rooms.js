@@ -523,7 +523,7 @@ function finishMatch(room) {
   const ps = alivePlayers(room);
   const busted = ps.filter((p) => p.busted);
   const has21 = ps.some((p) => !p.busted && p.total === 21);
-  const cups = has21 ? 2 : 1;
+  const baseCups = has21 ? 2 : 1;
   let losers;
   let reason;
   if (busted.length) {
@@ -536,7 +536,12 @@ function finishMatch(room) {
   }
   const loserIds = new Set(losers.map((p) => p.id));
   for (const p of ps) {
-    p.drinksThisRound = loserIds.has(p.id) ? cups : 0;
+    if (!loserIds.has(p.id)) {
+      p.drinksThisRound = 0;
+      continue;
+    }
+    const round1Burst = p.busted && (p.cards[0]?.rank || 0) > 21;
+    p.drinksThisRound = round1Burst ? 2 : baseCups;
     p.drinkTotal += p.drinksThisRound;
   }
   room.phase = "result";
@@ -544,7 +549,7 @@ function finishMatch(room) {
   room.dealRevealed = true;
   room.result = {
     reason,
-    cups,
+    cups: baseCups,
     has21,
     loserIds: [...loserIds],
   };
