@@ -23,6 +23,7 @@ const ui = {
   gmPendingId: null,
   showResultList: false,
   pickingTitle: "",
+  searching: false,
 };
 
 const params = new URLSearchParams(location.search);
@@ -372,6 +373,18 @@ function topicWaitHtml(title) {
   </div>`;
 }
 
+function topicButtonsHtml(list) {
+  return (list || [])
+    .map(
+      (t) =>
+        `<button class="topic" data-pick="${escapeHtml(t.slug)}" ${ui.busy ? "disabled" : ""}>
+          <div class="ttl">${escapeHtml(t.title)}</div>
+          <div class="cat">${escapeHtml(t.category || "")}</div>
+        </button>`
+    )
+    .join("");
+}
+
 function renderPickTopic() {
   const s = ui.state;
   const loading = !!(s.topicLoading || (ui.busy && ui.pickingTitle));
@@ -393,6 +406,35 @@ function renderPickTopic() {
       <p class="sub" style="margin:0">お題を選んだあと、ランキングの取得に少し時間がかかることがあります。</p>
     </div>`;
   }
+  const meta = s.searchMeta;
+  const similar = s.searchSimilar || [];
+  const choices = s.topicChoices || [];
+  const zero = meta && meta.hitCount === 0;
+  let resultHtml = "";
+  if (ui.searching) {
+    resultHtml = `<p class="sub">検索中…</p>`;
+  } else if (meta) {
+    const q = escapeHtml(meta.q || "");
+    if (zero) {
+      resultHtml = `<div class="search-zero">${
+        meta.playedOnly
+          ? `「${q}」は <b>0件</b>（ヒットしたお題はもうプレイ済み）`
+          : `「${q}」は <b>0件</b>`
+      }</div>`;
+    } else {
+      resultHtml = `<p class="sub" style="margin-top:0">「${q}」は ${meta.hitCount}件</p>`;
+    }
+  }
+  if (similar.length) {
+    resultHtml += `<div class="section-title" style="margin-top:12px">近いお題</div>${topicButtonsHtml(similar)}`;
+  }
+  if (choices.length) {
+    resultHtml += `${
+      zero ? `<div class="section-title" style="margin-top:12px">別のお題</div>` : ""
+    }${topicButtonsHtml(choices)}`;
+  } else if (zero && !similar.length && !ui.searching) {
+    resultHtml += `<p class="sub">近いお題も見つかりませんでした。ワードを変えるか、お題更新してね。</p>`;
+  }
   return `<div class="panel">
     <div class="section-title">${
       s.pickingDraw2 ? "2回戦のお題を選ぶ（1回戦の点数は持ち越し）" : "お題を選ぶ"
@@ -408,15 +450,7 @@ function renderPickTopic() {
       <button class="btn ghost" id="search-topics" ${ui.busy ? "disabled" : ""}>検索</button>
       <button class="btn ghost" id="refresh-topics" ${ui.busy ? "disabled" : ""}>お題更新</button>
     </div>
-    ${(s.topicChoices || [])
-      .map(
-        (t) =>
-          `<button class="topic" data-pick="${escapeHtml(t.slug)}" ${ui.busy ? "disabled" : ""}>
-            <div class="ttl">${escapeHtml(t.title)}</div>
-            <div class="cat">${escapeHtml(t.category || "")}</div>
-          </button>`
-      )
-      .join("")}
+    ${resultHtml}
   </div>`;
 }
 
@@ -739,7 +773,11 @@ app.addEventListener("click", (e) => {
   if (t.id === "refresh-topics") return emit("refresh_topics");
   if (t.id === "search-topics") {
     ui.searchQ = document.getElementById("search-q")?.value || "";
-    return emit("search_topics", { q: ui.searchQ });
+    ui.searching = true;
+    return emit("search_topics", { q: ui.searchQ }).finally(() => {
+      ui.searching = false;
+      render();
+    });
   }
   if (t.dataset.pick) {
     ui.pickingTitle = t.querySelector(".ttl")?.textContent || "";
@@ -802,7 +840,12 @@ app.addEventListener("keydown", (e) => {
   }
   if (e.target.id === "search-q") {
     e.preventDefault();
-    emit("search_topics", { q: ui.searchQ });
+    ui.searchQ = e.target.value || ui.searchQ;
+    ui.searching = true;
+    emit("search_topics", { q: ui.searchQ }).finally(() => {
+      ui.searching = false;
+      render();
+    });
   }
   if (e.target.id === "code") {
     e.preventDefault();

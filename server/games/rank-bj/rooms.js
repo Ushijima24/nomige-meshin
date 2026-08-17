@@ -270,6 +270,8 @@ function refillTopics(room, extraExclude = []) {
   const exclude = [...room.playedSlugs, ...extraExclude].filter(Boolean);
   room.topicChoices = pickCandidates(exclude, room.shownChoiceSlugs, 5);
   room.lastChoiceSlugs = room.topicChoices.map((c) => c.slug);
+  room.searchMeta = null;
+  room.searchSimilar = [];
   for (const c of room.topicChoices) {
     if (!room.shownChoiceSlugs.includes(c.slug)) room.shownChoiceSlugs.push(c.slug);
   }
@@ -412,14 +414,33 @@ export async function searchTopics(room, hostId, q) {
   if (!requireHost(room, hostId)) return { error: "主催者のみ" };
   if (room.playStep !== "pick_topic") return { error: "今はお題選びではありません" };
   if (room.topicLoading) return { error: "お題を読み込み中です" };
-  const found = await searchRankings(q);
+  const query = String(q || "").trim().slice(0, 40);
+  if (!query) return { error: "検索ワードを入れてね" };
+  const { hits, similar } = await searchRankings(query);
   const played = new Set(playedSlugsFor(room.code));
-  const filtered = found.filter((c) => !played.has(c.slug));
-  if (!filtered.length) return { error: "未プレイのお題が見つかりませんでした" };
-  room.topicChoices = filtered.slice(0, 8);
-  room.lastChoiceSlugs = room.topicChoices.map((c) => c.slug);
+  const filteredHits = (hits || []).filter((c) => !played.has(c.slug));
+  const hitSlugs = new Set(filteredHits.map((c) => c.slug));
+  const filteredSim = (similar || []).filter(
+    (c) => !played.has(c.slug) && !hitSlugs.has(c.slug)
+  );
+  room.searchMeta = {
+    q: query,
+    hitCount: filteredHits.length,
+    similarCount: filteredSim.length,
+    playedOnly: (hits || []).length > 0 && filteredHits.length === 0,
+  };
+  if (filteredHits.length) {
+    room.topicChoices = filteredHits.slice(0, 8);
+    room.searchSimilar = [];
+  } else {
+    room.searchSimilar = filteredSim.slice(0, 5);
+  }
+  room.lastChoiceSlugs = [
+    ...room.topicChoices.map((c) => c.slug),
+    ...(room.searchSimilar || []).map((c) => c.slug),
+  ];
   if (!room.shownChoiceSlugs) room.shownChoiceSlugs = [];
-  for (const c of room.topicChoices) {
+  for (const c of [...room.topicChoices, ...(room.searchSimilar || [])]) {
     if (!room.shownChoiceSlugs.includes(c.slug)) room.shownChoiceSlugs.push(c.slug);
   }
   return { ok: true };
@@ -432,7 +453,9 @@ export function beginPickTopic(room, hostId, slug) {
   const s = String(slug || "").trim();
   if (!s) return { error: "お題を選んでください" };
   const entry =
-    getCatalogEntry(s) || room.topicChoices.find((c) => c.slug === s);
+    getCatalogEntry(s) ||
+    room.topicChoices.find((c) => c.slug === s) ||
+    (room.searchSimilar || []).find((c) => c.slug === s);
   room.topicLoading = { slug: s, title: entry?.title || s };
   return { ok: true };
 }
@@ -822,6 +845,10 @@ export function publicState(room, viewerId) {
     canStay: room.draw === 2 && needAct.has(viewerId),
     players,
     topicChoices: isHost && room.playStep === "pick_topic" ? room.topicChoices : [],
+    searchSimilar:
+      isHost && room.playStep === "pick_topic" ? room.searchSimilar || [] : [],
+    searchMeta:
+      isHost && room.playStep === "pick_topic" ? room.searchMeta || null : null,
     currentTopic: room.currentTopic
       ? {
           slug: room.currentTopic.slug,

@@ -272,6 +272,16 @@ input[type="text"] {
   color: var(--text);
   margin-top: 10px;
 }
+.search-zero {
+  font-weight: 800;
+  color: var(--text);
+  background: rgba(255, 216, 77, 0.12);
+  border: 1px solid rgba(255, 216, 77, 0.35);
+  border-radius: 12px;
+  padding: 10px 12px;
+  margin: 4px 0 10px;
+}
+.search-zero b { color: var(--accent); }
 .wait-spin {
   width: 28px;
   height: 28px;

@@ -1,8 +1,9 @@
 import fs from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
-import { aliasesOf } from "./match.js";
-import { warmupReadings, wikiKanaFromExtract } from "./readings.js";
+import { aliasesOf, normalize } from "./match.js";
+import { warmupReadings, wikiKanaFromExtract, readingFits } from "./readings.js";
+import { resolveOfficialNames } from "./wiki.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const seedPath = path.join(__dirname, "catalog.json");
@@ -194,14 +195,151 @@ export async function fetchRanking(slug) {
 
 export async function searchRankings(q) {
   const query = String(q || "").trim().slice(0, 40);
-  if (!query) return [];
-  const local = catalog.filter(
-    (c) =>
-      c.title.includes(query) ||
-      (c.category && c.category.includes(query)) ||
-      c.slug.includes(query.toLowerCase())
-  );
-  let remote = [];
+  if (!query) return { hits: [], similar: [] };
+  if (/[\u3040-\u30ff]/.test(query)) await warmupReadings();
+
+  const remote = await searchRemote(query);
+  const hitSlugs = new Set();
+  const hits = [];
+  const addHit = (c) => {
+    if (!c?.slug || hitSlugs.has(c.slug)) return;
+    hitSlugs.add(c.slug);
+    hits.push({
+      slug: c.slug,
+      title: c.title,
+      category: c.category || "",
+      url: c.url || `https://ranking.net/rankings/${c.slug}`,
+    });
+  };
+  remote.forEach(addHit);
+
+  const scoreOne = (text) =>
+    catalog.map((c) => {
+      const r = scoreTopicQuery(text, c);
+      return { c, score: r.score, hit: r.hit };
+    });
+
+  let scored = scoreOne(query);
+  for (const x of scored.filter((x) => x.hit).sort((a, b) => b.score - a.score)) {
+    addHit(x.c);
+  }
+
+  if (!hits.length) {
+    try {
+      const official = await resolveOfficialNames(query);
+      for (const name of official.slice(0, 4)) {
+        const extra = scoreOne(name);
+        for (const x of extra.filter((x) => x.hit)) addHit(x.c);
+        for (const x of extra) {
+          const i = scored.findIndex((s) => s.c.slug === x.c.slug);
+          if (i >= 0) scored[i].score = Math.max(scored[i].score, x.score);
+          else scored.push(x);
+        }
+      }
+      if (!hits.length && official[0] && normalize(official[0]) !== normalize(query)) {
+        (await searchRemote(official[0])).forEach(addHit);
+      }
+    } catch {
+      // 近い候補だけで返す
+    }
+  }
+
+  const similar = scored
+    .filter((x) => !hitSlugs.has(x.c.slug) && x.score >= 42)
+    .sort((a, b) => b.score - a.score || (a.c.title || "").length - (b.c.title || "").length)
+    .slice(0, 6)
+    .map((x) => ({
+      slug: x.c.slug,
+      title: x.c.title,
+      category: x.c.category || "",
+      url: x.c.url || `https://ranking.net/rankings/${x.c.slug}`,
+    }));
+
+  return { hits: hits.slice(0, 12), similar };
+}
+
+function bigrams(s) {
+  const g = new Set();
+  for (let i = 0; i < s.length - 1; i++) g.add(s.slice(i, i + 2));
+  return g;
+}
+
+function dice(a, b) {
+  if (!a.size || !b.size) return 0;
+  let n = 0;
+  for (const x of a) if (b.has(x)) n++;
+  return (2 * n) / (a.size + b.size);
+}
+
+function titleCore(title) {
+  return String(title || "")
+    .replace(/["“”『』「」]/g, "")
+    .replace(/ランキング$/g, "")
+    .replace(/で思い浮かぶものは？$/g, "")
+    .replace(/^全国の/, "")
+    .trim();
+}
+
+function kanaQueryFitsTitle(title, query) {
+  const q = normalize(query);
+  if (q.length < 2 || !/^[\u3040-\u309f]+$/.test(q)) return "none";
+  const core = titleCore(title);
+  if (readingFits(core, query)) return "core";
+  for (let i = 0; i < core.length; i++) {
+    if (!/[\u4e00-\u9fff]/.test(core[i])) continue;
+    for (let len = 2; len <= 8 && i + len <= core.length; len++) {
+      const chunk = core.slice(i, i + len);
+      if (!/[\u4e00-\u9fff]/.test(chunk[chunk.length - 1])) break;
+      if (readingFits(chunk, query)) return "part";
+    }
+    if (q.length >= 3 && readingFits(core[i], query)) return "part";
+  }
+  return "none";
+}
+
+function scoreTopicQuery(query, entry) {
+  const q = normalize(query);
+  if (!q) return { score: 0, hit: false };
+  const title = normalize(entry.title || "");
+  const core = normalize(titleCore(entry.title || ""));
+  const cat = normalize(entry.category || "");
+  const slug = normalize((entry.slug || "").replace(/-/g, ""));
+  let score = 0;
+  let hit = false;
+
+  if (title === q || core === q || slug === q) {
+    return { score: 100, hit: true };
+  }
+  if (q.length >= 2 && (title.includes(q) || core.includes(q) || slug.includes(q))) {
+    hit = true;
+    score = Math.max(score, 82 + Math.min(q.length, 12));
+  }
+  if (q.length >= 2 && cat.includes(q)) {
+    hit = true;
+    score = Math.max(score, 70);
+  }
+  const kanaFit = kanaQueryFitsTitle(entry.title || "", query);
+  if (kanaFit === "core") {
+    hit = true;
+    score = Math.max(score, 92);
+  } else if (kanaFit === "part") {
+    hit = true;
+    score = Math.max(score, 80);
+  }
+  if (q.length >= 2 && title.length >= 2) {
+    score = Math.max(score, Math.round(dice(bigrams(q), bigrams(title)) * 78));
+    if (core.length >= 2) {
+      score = Math.max(score, Math.round(dice(bigrams(q), bigrams(core)) * 78));
+    }
+  }
+  if (q.length >= 2 && cat.length >= 2) {
+    score = Math.max(score, Math.round(dice(bigrams(q), bigrams(cat)) * 52));
+  }
+  return { score, hit };
+}
+
+async function searchRemote(query) {
+  const remote = [];
   try {
     const url = `https://ranking.net/search?q=${encodeURIComponent(query)}`;
     const html = await fetchText(url);
@@ -211,31 +349,18 @@ export async function searchRankings(q) {
     while ((m = re.exec(html))) {
       const slug = m[1];
       const title = decodeHtml(m[2].trim());
-      remote.push({
+      const row = {
         slug,
         title,
         category: "",
         url: `https://ranking.net/rankings/${slug}`,
-      });
-      if (!catalog.some((c) => c.slug === slug)) {
-        catalog.push({
-          slug,
-          title,
-          category: "",
-          url: `https://ranking.net/rankings/${slug}`,
-        });
-      }
+      };
+      remote.push(row);
+      if (!catalog.some((c) => c.slug === slug)) catalog.push(row);
+      if (remote.length >= 12) break;
     }
   } catch {
     // ローカル候補だけ返す
   }
-  const seen = new Set();
-  const out = [];
-  for (const c of [...remote, ...local]) {
-    if (seen.has(c.slug)) continue;
-    seen.add(c.slug);
-    out.push(c);
-    if (out.length >= 12) break;
-  }
-  return out;
+  return remote;
 }
