@@ -159,6 +159,17 @@ input[type="text"] {
 }
 .game-pick:disabled { opacity: 0.4; cursor: not-allowed; }
 .game-pick .title { font-size: 1.15rem; font-weight: 800; color: var(--accent); }
+.game-pick .rec {
+  display: inline-block;
+  margin-left: 8px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 0.72rem;
+  font-weight: 800;
+  vertical-align: middle;
+  color: var(--accent2);
+  background: rgba(94, 240, 224, 0.14);
+}
 .game-pick .desc { margin-top: 6px; color: var(--muted); font-weight: 700; font-size: 0.9rem; line-height: 1.45; }
 .sub { color: var(--muted); font-weight: 700; font-size: 0.88rem; line-height: 1.45; }
 .kick {

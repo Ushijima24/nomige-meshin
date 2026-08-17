@@ -167,7 +167,11 @@ function renderLobby() {
                   `<button type="button" class="game-pick" data-game="${g.id}" ${
                     ui.busy || s.players.length < (g.minPlayers || 2) ? "disabled" : ""
                   }>
-                    <div class="title">${escapeHtml(g.title)}</div>
+                    <div class="title">${escapeHtml(g.title)}${
+                      g.recommend
+                        ? `<span class="rec">推奨 ${escapeHtml(g.recommend)}</span>`
+                        : ""
+                    }</div>
                     <div class="desc">${escapeHtml(g.desc)}${
                       g.minPlayers && s.players.length < g.minPlayers
                         ? `（${g.minPlayers}人以上）`

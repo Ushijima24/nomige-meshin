@@ -17,6 +17,7 @@ export const PARTY_GAMES = [
     title: "トラップゲーム",
     path: "/games/trap/",
     desc: "酒をカードで回す。かわして渡して、負けた人が飲む。",
+    recommend: "3〜8人",
   },
   {
     id: "image-match",
@@ -29,6 +30,7 @@ export const PARTY_GAMES = [
     title: "ランキングBJ",
     path: "/games/rank-bj/",
     desc: "ランキングの順位が点数。21を目指す知識ブラックジャック。",
+    recommend: "2〜7人",
   },
   {
     id: "seikai-jinrou",
@@ -36,6 +38,7 @@ export const PARTY_GAMES = [
     path: "/games/seikai-jinrou/",
     desc: "人狼はベストアンサーになるな。お題に一番沿った答えと人狼を当てる。",
     minPlayers: 3,
+    recommend: "4〜6人",
   },
 ];
 

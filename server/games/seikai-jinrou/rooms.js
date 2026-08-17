@@ -586,9 +586,12 @@ function drinksWhenWolfCaught(room) {
 }
 
 function drinksWhenWolfEscapes(room, accusedId) {
+  const citizens = connectedPlayers(room).filter((p) => p.id !== room.wolfId);
+  if (playerList(room).length <= 3) {
+    return citizens.map((p) => ({ playerId: p.id, cups: 1 }));
+  }
   const ba = new Set(room.bestAnswer?.playerIds || []);
-  return connectedPlayers(room)
-    .filter((p) => p.id !== room.wolfId)
+  return citizens
     .filter((p) => !ba.has(p.id))
     .filter((p) => p.id !== accusedId)
     .map((p) => ({ playerId: p.id, cups: 1 }));
