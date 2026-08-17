@@ -30,6 +30,13 @@ export const PARTY_GAMES = [
     path: "/games/rank-bj/",
     desc: "ランキングの順位が点数。21を目指す知識ブラックジャック。",
   },
+  {
+    id: "seikai-jinrou",
+    title: "朝までそれ正解人狼",
+    path: "/games/seikai-jinrou/",
+    desc: "人狼はベストアンサーになるな。お題に一番沿った答えと人狼を当てる。",
+    minPlayers: 3,
+  },
 ];
 
 /** @type {Map<string, PartyRoom>} */

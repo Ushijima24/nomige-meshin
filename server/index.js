@@ -37,6 +37,7 @@ import { questionCount, imagesDir } from "./games/image-match/questions.js";
 import * as trap from "./games/trap/rooms.js";
 import { CARD_LIST, RANK_RATES, cardLabel } from "./games/trap/cards.js";
 import * as rankBj from "./games/rank-bj/rooms.js";
+import * as seikaiJinrou from "./games/seikai-jinrou/rooms.js";
 import * as party from "./party/rooms.js";
 import { warmupReadings } from "./games/rank-bj/readings.js";
 
@@ -944,6 +945,341 @@ io.of("/rank-bj").on("connection", (socket) => {
   });
 });
 
+/** ---- 朝までそれ正解人狼 (/seikai-jinrou) ---- */
+const seikaiSessions = new Map();
+
+function emitSeikai(room) {
+  if (!room) return;
+  for (const [sid, sess] of seikaiSessions) {
+    if (sess.roomCode !== room.code) continue;
+    const sock = io.of("/seikai-jinrou").sockets.get(sid);
+    if (sock) sock.emit("state", seikaiJinrou.publicState(room, sess.playerId));
+  }
+}
+
+const seikaiGrace = createGraceTracker(
+  seikaiSessions,
+  (c) => seikaiJinrou.getRoom(c),
+  (room, id) => seikaiJinrou.leaveRoom(room, id),
+  emitSeikai
+);
+
+function kickSeikaiBots(room) {
+  if (!room || room._seikaiBotKick) return;
+  const answerIds = seikaiJinrou.listBotsNeedingAnswer(room);
+  const voteIds = seikaiJinrou.listBotsNeedingVote(room);
+  if (!answerIds.length && !voteIds.length) return;
+  room._seikaiBotKick = true;
+  const jobs = [
+    ...answerIds.map((id, i) => ({
+      kind: "answer",
+      id,
+      delay: 500 + i * 350 + Math.floor(Math.random() * 300),
+    })),
+    ...voteIds.map((id, i) => ({
+      kind: "vote",
+      id,
+      delay: 400 + i * 300 + Math.floor(Math.random() * 250),
+    })),
+  ];
+  jobs.forEach((job, idx) => {
+    setTimeout(() => {
+      if (job.kind === "answer" && room.phase === "answering") {
+        seikaiJinrou.answerAsBot(room, job.id);
+      }
+      if (
+        job.kind === "vote" &&
+        (room.phase === "vote_ba" ||
+          (room.phase === "vote_wolf" && room.wolfVoteStage !== "host"))
+      ) {
+        seikaiJinrou.voteAsBot(room, job.id);
+      }
+      emitSeikai(room);
+      if (idx === jobs.length - 1) {
+        room._seikaiBotKick = false;
+        kickSeikaiBots(room);
+      }
+    }, job.delay);
+  });
+}
+
+function armSeikaiTimer(room) {
+  clearTimeout(room._timerHandle);
+  if (!room.timerEndsAt) return;
+  const wait = Math.max(0, room.timerEndsAt - Date.now()) + 80;
+  room._timerHandle = setTimeout(() => {
+    if (room.phase !== "answering") return;
+    seikaiJinrou.closeAnswers(room);
+    emitSeikai(room);
+    kickSeikaiBots(room);
+  }, wait);
+}
+
+function bindSeikai(socket, roomCode, playerId) {
+  seikaiSessions.set(socket.id, { roomCode, playerId });
+  socket.join(roomCode);
+  seikaiGrace.cancel(roomCode, playerId);
+}
+
+io.of("/seikai-jinrou").on("connection", (socket) => {
+  socket.on("create_room", ({ name, avatar }, cb) => {
+    try {
+      const { room, playerId } = seikaiJinrou.createRoom(name, avatar);
+      bindSeikai(socket, room.code, playerId);
+      cb?.({ ok: true, playerId, code: room.code });
+      emitSeikai(room);
+    } catch (e) {
+      cb?.({ ok: false, error: e.message || "作成失敗" });
+    }
+  });
+
+  socket.on("join_room", ({ code, name, avatar }, cb) => {
+    try {
+      const result = seikaiJinrou.joinRoom(code, name, avatar);
+      if (result.error) return cb?.({ ok: false, error: result.error });
+      bindSeikai(socket, result.room.code, result.playerId);
+      cb?.({ ok: true, playerId: result.playerId, code: result.room.code });
+      emitSeikai(result.room);
+    } catch (e) {
+      cb?.({ ok: false, error: e.message || "参加失敗" });
+    }
+  });
+
+  socket.on("rejoin", ({ code, playerId }, cb) => {
+    try {
+      const result = seikaiJinrou.rejoinRoom(code, playerId);
+      if (result.error) return cb?.({ ok: false, error: result.error });
+      bindSeikai(socket, result.room.code, result.playerId);
+      seikaiJinrou.setConnected(result.room, result.playerId, true);
+      cb?.({ ok: true, playerId: result.playerId, code: result.room.code });
+      emitSeikai(result.room);
+      kickSeikaiBots(result.room);
+    } catch (e) {
+      cb?.({ ok: false, error: e.message || "復帰失敗" });
+    }
+  });
+
+  socket.on("kick_player", ({ playerId }, cb) => {
+    const sess = seikaiSessions.get(socket.id);
+    if (!sess) return cb?.({ ok: false, error: "未参加" });
+    const room = seikaiJinrou.getRoom(sess.roomCode);
+    if (!room) return cb?.({ ok: false, error: "ルームなし" });
+    const result = seikaiJinrou.kickFromLobby(room, sess.playerId, playerId);
+    if (result.error) return cb?.({ ok: false, error: result.error });
+    notifyKicked(
+      (sid) => io.of("/seikai-jinrou").sockets.get(sid),
+      seikaiSessions,
+      room.code,
+      result.kickedId,
+      `${result.kickedName} は部屋から外されました`
+    );
+    seikaiGrace.cancel(room.code, result.kickedId);
+    cb?.({ ok: true });
+    emitSeikai(room);
+  });
+
+  socket.on("leave_room", (_data, cb) => {
+    const sess = seikaiSessions.get(socket.id);
+    if (!sess) return cb?.({ ok: true });
+    seikaiSessions.delete(socket.id);
+    socket.leave(sess.roomCode);
+    seikaiGrace.cancel(sess.roomCode, sess.playerId);
+    const room = seikaiJinrou.getRoom(sess.roomCode);
+    if (room) {
+      const updated = seikaiJinrou.leaveRoom(room, sess.playerId);
+      if (updated) emitSeikai(updated);
+    }
+    cb?.({ ok: true });
+  });
+
+  socket.on("add_bot", (_data, cb) => {
+    const sess = seikaiSessions.get(socket.id);
+    if (!sess) return cb?.({ ok: false, error: "未参加" });
+    const room = seikaiJinrou.getRoom(sess.roomCode);
+    if (!room) return cb?.({ ok: false, error: "ルームなし" });
+    const result = seikaiJinrou.addBot(room, sess.playerId);
+    if (result.error) return cb?.({ ok: false, error: result.error });
+    cb?.({ ok: true });
+    emitSeikai(room);
+  });
+
+  socket.on("remove_bot", ({ botId }, cb) => {
+    const sess = seikaiSessions.get(socket.id);
+    if (!sess) return cb?.({ ok: false, error: "未参加" });
+    const room = seikaiJinrou.getRoom(sess.roomCode);
+    if (!room) return cb?.({ ok: false, error: "ルームなし" });
+    const result = seikaiJinrou.removeBot(room, sess.playerId, botId);
+    if (result.error) return cb?.({ ok: false, error: result.error });
+    cb?.({ ok: true });
+    emitSeikai(room);
+  });
+
+  socket.on("start_game", (_data, cb) => {
+    const sess = seikaiSessions.get(socket.id);
+    if (!sess) return cb?.({ ok: false, error: "未参加" });
+    const room = seikaiJinrou.getRoom(sess.roomCode);
+    if (!room) return cb?.({ ok: false, error: "ルームなし" });
+    const result = seikaiJinrou.startGame(room, sess.playerId);
+    if (result.error) return cb?.({ ok: false, error: result.error });
+    cb?.({ ok: true });
+    emitSeikai(room);
+    kickSeikaiBots(room);
+  });
+
+  socket.on("start_timer", (_data, cb) => {
+    const sess = seikaiSessions.get(socket.id);
+    if (!sess) return cb?.({ ok: false, error: "未参加" });
+    const room = seikaiJinrou.getRoom(sess.roomCode);
+    if (!room) return cb?.({ ok: false, error: "ルームなし" });
+    const result = seikaiJinrou.startTimer(room, sess.playerId);
+    if (result.error) return cb?.({ ok: false, error: result.error });
+    cb?.({ ok: true });
+    emitSeikai(room);
+    armSeikaiTimer(room);
+    kickSeikaiBots(room);
+  });
+
+  socket.on("submit_answer", ({ text }, cb) => {
+    const sess = seikaiSessions.get(socket.id);
+    if (!sess) return cb?.({ ok: false, error: "未参加" });
+    const room = seikaiJinrou.getRoom(sess.roomCode);
+    if (!room) return cb?.({ ok: false, error: "ルームなし" });
+    const result = seikaiJinrou.submitAnswer(room, sess.playerId, text);
+    if (result.error) return cb?.({ ok: false, error: result.error });
+    cb?.({ ok: true });
+    emitSeikai(room);
+    kickSeikaiBots(room);
+  });
+
+  socket.on("close_answers", (_data, cb) => {
+    const sess = seikaiSessions.get(socket.id);
+    if (!sess) return cb?.({ ok: false, error: "未参加" });
+    const room = seikaiJinrou.getRoom(sess.roomCode);
+    if (!room) return cb?.({ ok: false, error: "ルームなし" });
+    const result = seikaiJinrou.closeAnswers(room, sess.playerId);
+    if (result.error) return cb?.({ ok: false, error: result.error });
+    cb?.({ ok: true });
+    emitSeikai(room);
+    kickSeikaiBots(room);
+  });
+
+  socket.on("merge_groups", ({ groupIdA, groupIdB }, cb) => {
+    const sess = seikaiSessions.get(socket.id);
+    if (!sess) return cb?.({ ok: false, error: "未参加" });
+    const room = seikaiJinrou.getRoom(sess.roomCode);
+    if (!room) return cb?.({ ok: false, error: "ルームなし" });
+    const result = seikaiJinrou.mergeGroups(room, sess.playerId, groupIdA, groupIdB);
+    if (result.error) return cb?.({ ok: false, error: result.error });
+    cb?.({ ok: true });
+    emitSeikai(room);
+  });
+
+  socket.on("unmerge_player", ({ targetPlayerId }, cb) => {
+    const sess = seikaiSessions.get(socket.id);
+    if (!sess) return cb?.({ ok: false, error: "未参加" });
+    const room = seikaiJinrou.getRoom(sess.roomCode);
+    if (!room) return cb?.({ ok: false, error: "ルームなし" });
+    const result = seikaiJinrou.unmergePlayer(room, sess.playerId, targetPlayerId);
+    if (result.error) return cb?.({ ok: false, error: result.error });
+    cb?.({ ok: true });
+    emitSeikai(room);
+  });
+
+  socket.on("host_pick_ba", ({ groupId }, cb) => {
+    const sess = seikaiSessions.get(socket.id);
+    if (!sess) return cb?.({ ok: false, error: "未参加" });
+    const room = seikaiJinrou.getRoom(sess.roomCode);
+    if (!room) return cb?.({ ok: false, error: "ルームなし" });
+    const result = seikaiJinrou.hostPickBa(room, sess.playerId, groupId);
+    if (result.error) return cb?.({ ok: false, error: result.error });
+    cb?.({ ok: true });
+    emitSeikai(room);
+    kickSeikaiBots(room);
+  });
+
+  socket.on("start_ba_vote", (_data, cb) => {
+    const sess = seikaiSessions.get(socket.id);
+    if (!sess) return cb?.({ ok: false, error: "未参加" });
+    const room = seikaiJinrou.getRoom(sess.roomCode);
+    if (!room) return cb?.({ ok: false, error: "ルームなし" });
+    const result = seikaiJinrou.startBaVote(room, sess.playerId);
+    if (result.error) return cb?.({ ok: false, error: result.error });
+    cb?.({ ok: true });
+    emitSeikai(room);
+    kickSeikaiBots(room);
+  });
+
+  socket.on("cast_vote", ({ targetId }, cb) => {
+    const sess = seikaiSessions.get(socket.id);
+    if (!sess) return cb?.({ ok: false, error: "未参加" });
+    const room = seikaiJinrou.getRoom(sess.roomCode);
+    if (!room) return cb?.({ ok: false, error: "ルームなし" });
+    const result = seikaiJinrou.castVote(room, sess.playerId, targetId);
+    if (result.error) return cb?.({ ok: false, error: result.error });
+    cb?.({ ok: true });
+    emitSeikai(room);
+    kickSeikaiBots(room);
+  });
+
+  socket.on("host_pick_accused", ({ targetId }, cb) => {
+    const sess = seikaiSessions.get(socket.id);
+    if (!sess) return cb?.({ ok: false, error: "未参加" });
+    const room = seikaiJinrou.getRoom(sess.roomCode);
+    if (!room) return cb?.({ ok: false, error: "ルームなし" });
+    const result = seikaiJinrou.hostPickAccused(room, sess.playerId, targetId);
+    if (result.error) return cb?.({ ok: false, error: result.error });
+    cb?.({ ok: true });
+    emitSeikai(room);
+  });
+
+  socket.on("next_round", (_data, cb) => {
+    const sess = seikaiSessions.get(socket.id);
+    if (!sess) return cb?.({ ok: false, error: "未参加" });
+    const room = seikaiJinrou.getRoom(sess.roomCode);
+    if (!room) return cb?.({ ok: false, error: "ルームなし" });
+    const result = seikaiJinrou.nextRound(room, sess.playerId);
+    if (result.error) return cb?.({ ok: false, error: result.error });
+    cb?.({ ok: true });
+    emitSeikai(room);
+    kickSeikaiBots(room);
+  });
+
+  socket.on("back_to_lobby", (_data, cb) => {
+    const sess = seikaiSessions.get(socket.id);
+    if (!sess) return cb?.({ ok: false, error: "未参加" });
+    const room = seikaiJinrou.getRoom(sess.roomCode);
+    if (!room) return cb?.({ ok: false, error: "ルームなし" });
+    if (room.partyOwned) {
+      return handleGameBackToParty(sess.roomCode, sess.playerId, cb);
+    }
+    const result = seikaiJinrou.backToLobby(room, sess.playerId);
+    if (result.error) return cb?.({ ok: false, error: result.error });
+    cb?.({ ok: true });
+    emitSeikai(room);
+  });
+
+  socket.on("back_to_party", (_data, cb) => {
+    const sess = seikaiSessions.get(socket.id);
+    if (!sess) return cb?.({ ok: false, error: "未参加" });
+    handleGameBackToParty(sess.roomCode, sess.playerId, cb);
+  });
+
+  socket.on("disconnect", () => {
+    const sess = seikaiSessions.get(socket.id);
+    if (!sess) return;
+    seikaiSessions.delete(socket.id);
+    const stillHere = [...seikaiSessions.values()].some(
+      (s) => s.roomCode === sess.roomCode && s.playerId === sess.playerId
+    );
+    if (stillHere) return;
+    const room = seikaiJinrou.getRoom(sess.roomCode);
+    if (!room) return;
+    seikaiJinrou.setConnected(room, sess.playerId, false);
+    emitSeikai(room);
+    seikaiGrace.schedule(sess.roomCode, sess.playerId);
+  });
+});
+
 /** ---- パーティー (/party) 共通ロビー ---- */
 const partySessions = new Map();
 
@@ -988,6 +1324,9 @@ function syncDrinksFromGame(partyRoom, gameId) {
   } else if (gameId === "rank-bj") {
     const g = rankBj.getRoom(partyRoom.code);
     if (g) totals = rankBj.exportDrinkTotals(g);
+  } else if (gameId === "seikai-jinrou") {
+    const g = seikaiJinrou.getRoom(partyRoom.code);
+    if (g) totals = seikaiJinrou.exportDrinkTotals(g);
   }
   if (totals) party.applyDrinkTotals(partyRoom, totals);
 }
@@ -996,6 +1335,7 @@ function destroyGameRoom(code, gameId) {
   if (gameId === "trap") trap.destroyRoom(code);
   else if (gameId === "image-match") destroyImageMatchRoom(code);
   else if (gameId === "rank-bj") rankBj.destroyRoom(code);
+  else if (gameId === "seikai-jinrou") seikaiJinrou.destroyRoom(code);
 }
 
 function notifyEnterGame(partyRoom, gameMeta) {
@@ -1016,6 +1356,7 @@ function notifyGoParty(code) {
     [trapSessions, io.of("/trap")],
     [sessions, io],
     [rankBjSessions, io.of("/rank-bj")],
+    [seikaiSessions, io.of("/seikai-jinrou")],
   ];
   for (const [sessMap, nsp] of payloads) {
     for (const [sid, sess] of sessMap) {
@@ -1082,7 +1423,9 @@ io.of("/party").on("connection", (socket) => {
         const gameExists =
           (result.room.currentGame === "trap" && trap.getRoom(result.room.code)) ||
           (result.room.currentGame === "image-match" && getRoom(result.room.code)) ||
-          (result.room.currentGame === "rank-bj" && rankBj.getRoom(result.room.code));
+          (result.room.currentGame === "rank-bj" && rankBj.getRoom(result.room.code)) ||
+          (result.room.currentGame === "seikai-jinrou" &&
+            seikaiJinrou.getRoom(result.room.code));
         if (!gameExists) {
           party.clearGame(result.room);
           emitParty(result.room);
@@ -1162,6 +1505,9 @@ io.of("/party").on("connection", (socket) => {
     } else if (room.currentGame === "rank-bj") {
       const g = rankBj.getRoom(room.code);
       if (g) rankBj.resetDrinkTotals(g);
+    } else if (room.currentGame === "seikai-jinrou") {
+      const g = seikaiJinrou.getRoom(room.code);
+      if (g) seikaiJinrou.resetDrinkTotals(g);
     }
     cb?.({ ok: true });
     emitParty(room);
@@ -1175,6 +1521,9 @@ io.of("/party").on("connection", (socket) => {
     if (sess.playerId !== room.hostId) return cb?.({ ok: false, error: "主催者のみ" });
     if (room.phase !== "lobby") return cb?.({ ok: false, error: "すでにゲーム中です" });
     if (room.players.size < 2) return cb?.({ ok: false, error: "2人以上必要です" });
+    if (gameId === "seikai-jinrou" && room.players.size < 3) {
+      return cb?.({ ok: false, error: "それ正解人狼は3人以上必要です" });
+    }
 
     const meta = party.PARTY_GAMES.find((g) => g.id === gameId);
     if (!meta) return cb?.({ ok: false, error: "不明なゲーム" });
@@ -1184,6 +1533,7 @@ io.of("/party").on("connection", (socket) => {
     if (gameId === "trap") spawned = trap.createFromParty(snap);
     else if (gameId === "image-match") spawned = createImageFromParty(snap);
     else if (gameId === "rank-bj") spawned = rankBj.createFromParty(snap);
+    else if (gameId === "seikai-jinrou") spawned = seikaiJinrou.createFromParty(snap);
     else return cb?.({ ok: false, error: "不明なゲーム" });
 
     if (spawned?.error) return cb?.({ ok: false, error: spawned.error });
@@ -1224,5 +1574,6 @@ httpServer.listen(PORT, "0.0.0.0", () => {
   console.log(`飲みゲーパーティー http://localhost:${PORT}`);
   console.log(`トラップゲーム     http://localhost:${PORT}/games/trap/`);
   console.log(`ランキングBJ       http://localhost:${PORT}/games/rank-bj/`);
+  console.log(`それ正解人狼       http://localhost:${PORT}/games/seikai-jinrou/`);
   warmupReadings();
 });

@@ -16,6 +16,7 @@
       image-match/                # 画像で全員一致（ロジック）
       trap/                       # トラップゲーム（ロジック）
       rank-bj/                    # ランキングBJ（ロジック＋みんラン取得）
+      seikai-jinrou/              # 朝までそれ正解人狼
   public/
     index.html                    # ゲーム選択ハブ
     games/
@@ -35,7 +36,8 @@ npm start
 - ハブ: http://localhost:3847  
 - 画像で全員一致: http://localhost:3847/games/image-match/  
 - トラップゲーム: http://localhost:3847/games/trap/  
-- ランキングBJ: http://localhost:3847/games/rank-bj/
+- ランキングBJ: http://localhost:3847/games/rank-bj/  
+- 朝までそれ正解人狼: http://localhost:3847/games/seikai-jinrou/
 
 同じWi-Fiのスマホから使う場合は、PCのIP（例: `http://192.168.x.x:3847`）を開く。
 
@@ -46,6 +48,7 @@ npm start
 - **トラップゲーム** … 「遊び方・カード一覧」で流れ・注意点・全カード効果が見られます  
 - **画像で全員一致** … ホームに手順の説明  
 - **ランキングBJ** … ホームに詳しいルール  
+- **朝までそれ正解人狼** … ホームに詳しいルール。お題は `server/games/seikai-jinrou/topics.js`  
 
 ## インターネット公開（友達のスマホから）
 
