@@ -114,6 +114,60 @@ export function createRoom(hostName, avatar) {
   return { room, playerId: hostId };
 }
 
+export function createFromParty(partySnap) {
+  const roomCode = String(partySnap.code || "").toUpperCase();
+  if (!roomCode) return { error: "コードなし" };
+  if (rooms.has(roomCode)) rooms.delete(roomCode);
+
+  const room = {
+    code: roomCode,
+    hostId: partySnap.hostId,
+    players: new Map(),
+    phase: "lobby",
+    questions: [],
+    qIndex: 0,
+    answers: new Map(),
+    groups: [],
+    drinks: [],
+    resultType: "",
+    hostPickNeeded: false,
+    hostPickId: null,
+    votes: new Map(),
+    voteNeeded: false,
+    drinkTotals: new Map(),
+    round: 0,
+    partyOwned: true,
+  };
+
+  for (const p of partySnap.players || []) {
+    room.players.set(p.id, {
+      id: p.id,
+      name: p.name,
+      avatar: sanitizeAvatar(p.avatar),
+      isHost: p.id === partySnap.hostId,
+      connected: true,
+      isBot: !!p.isBot,
+    });
+    room.drinkTotals.set(p.id, Math.max(0, Number(p.drinkTotal) || 0));
+  }
+  rooms.set(roomCode, room);
+  return { room };
+}
+
+export function exportDrinkTotals(room) {
+  const o = {};
+  for (const [id, n] of room.drinkTotals.entries()) o[id] = n || 0;
+  return o;
+}
+
+export function destroyRoom(code) {
+  rooms.delete(String(code || "").toUpperCase());
+}
+
+export function resetDrinkTotals(room) {
+  for (const id of room.players.keys()) room.drinkTotals.set(id, 0);
+}
+
 export function joinRoom(roomCode, name, avatar) {
   const room = rooms.get(String(roomCode || "").toUpperCase());
   if (!room) return { error: "ルームが見つかりません" };
@@ -229,7 +283,7 @@ export function startGame(room, playerId) {
   }
   room.qIndex = 0;
   room.round = 1;
-  room.drinkTotals = new Map();
+  if (!room.partyOwned) room.drinkTotals = new Map();
   beginQuestion(room);
   return { ok: true };
 }
@@ -460,7 +514,7 @@ export function backToLobby(room, playerId) {
   room.hostPickId = null;
   room.votes = new Map();
   room.voteNeeded = false;
-  room.drinkTotals = new Map();
+  if (!room.partyOwned) room.drinkTotals = new Map();
   room.round = 0;
   return { ok: true };
 }

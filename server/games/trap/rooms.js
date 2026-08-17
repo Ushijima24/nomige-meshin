@@ -785,6 +785,72 @@ export function createRoom(hostName, avatar) {
   return { room, playerId: hostId };
 }
 
+/** パーティーから同じコード・同じIDでゲーム部屋を起こす */
+export function createFromParty(partySnap) {
+  const roomCode = String(partySnap.code || "").toUpperCase();
+  if (!roomCode) return { error: "コードなし" };
+  if (rooms.has(roomCode)) rooms.delete(roomCode);
+
+  const room = {
+    code: roomCode,
+    hostId: partySnap.hostId,
+    players: new Map(),
+    phase: "lobby",
+    drinkTotals: new Map(),
+    matchNumber: 0,
+    amount: 1,
+    holderId: null,
+    lastPasserId: null,
+    graveyard: [],
+    matchLog: [],
+    matchHistory: [],
+    lastPlayed: null,
+    taimanPair: null,
+    bombCountdown: null,
+    hanzaiDrawn: false,
+    esconPlayerId: null,
+    pending: null,
+    lastResult: null,
+    turnCount: 0,
+    peekView: null,
+    lastEffectSnapshot: null,
+    pitouControllerId: null,
+    botThinking: null,
+    partyOwned: true,
+  };
+
+  for (const p of partySnap.players || []) {
+    room.players.set(p.id, {
+      id: p.id,
+      name: p.name,
+      avatar: sanitizeAvatar(p.avatar),
+      isHost: p.id === partySnap.hostId,
+      connected: true,
+      isBot: !!p.isBot,
+      taga: isTagaName(p.name),
+      ushi: isUshiName(p.name),
+      ...blankPlayerFields(),
+    });
+    room.drinkTotals.set(p.id, Math.max(0, Number(p.drinkTotal) || 0));
+  }
+  rooms.set(roomCode, room);
+  return { room };
+}
+
+export function exportDrinkTotals(room) {
+  const o = {};
+  for (const [id, n] of room.drinkTotals.entries()) o[id] = n || 0;
+  return o;
+}
+
+export function destroyRoom(code) {
+  rooms.delete(String(code || "").toUpperCase());
+}
+
+export function resetDrinkTotals(room) {
+  for (const id of room.players.keys()) room.drinkTotals.set(id, 0);
+}
+
 function blankPlayerFields(extra = {}) {
   return {
     hand: [],

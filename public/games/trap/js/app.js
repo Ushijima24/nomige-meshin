@@ -36,9 +36,26 @@ const params = new URLSearchParams(location.search);
 if (params.get("room")) ui.joinCode = params.get("room").toUpperCase();
 
 const SESSION_KEY = "trap_session";
+const PARTY_KEY = "party_session";
+function loadPartySession() {
+  try {
+    return JSON.parse(localStorage.getItem(PARTY_KEY) || "null");
+  } catch {
+    return null;
+  }
+}
+function hasPartySession() {
+  const p = loadPartySession();
+  return !!(p?.code && p?.playerId);
+}
 function loadSession() {
   try {
-    return JSON.parse(localStorage.getItem(SESSION_KEY) || "null");
+    const party = loadPartySession();
+    const local = JSON.parse(localStorage.getItem(SESSION_KEY) || "null");
+    if (party?.code && party?.playerId) {
+      if (!ui.joinCode || party.code === ui.joinCode) return party;
+    }
+    return local;
   } catch {
     return null;
   }
@@ -46,10 +63,16 @@ function loadSession() {
 function saveSession(code, playerId) {
   if (code && playerId) {
     localStorage.setItem(SESSION_KEY, JSON.stringify({ code, playerId }));
+    if (hasPartySession() || ui.joinCode) {
+      localStorage.setItem(PARTY_KEY, JSON.stringify({ code, playerId }));
+    }
   }
 }
 function clearSession() {
   localStorage.removeItem(SESSION_KEY);
+}
+function partyHomeUrl(code) {
+  return code ? `/?room=${encodeURIComponent(code)}` : "/";
 }
 
 function tryRejoin() {
@@ -57,10 +80,15 @@ function tryRejoin() {
   if (!sess?.code || !sess?.playerId) return;
   socket.emit("rejoin", { code: sess.code, playerId: sess.playerId }, (res) => {
     if (res?.ok) {
+      saveSession(res.code, res.playerId);
       history.replaceState({}, "", `?room=${res.code}`);
       return;
     }
     clearSession();
+    if (hasPartySession()) {
+      location.href = partyHomeUrl(loadPartySession()?.code);
+      return;
+    }
     ui.state = null;
     ui.view = "home";
     if (res?.error === "この部屋にいません") {
@@ -71,8 +99,15 @@ function tryRejoin() {
 }
 
 socket.on("connect", tryRejoin);
+socket.on("go_party", ({ code } = {}) => {
+  location.href = partyHomeUrl(code || loadPartySession()?.code || ui.state?.code);
+});
 socket.on("kicked", ({ message } = {}) => {
   clearSession();
+  if (hasPartySession()) {
+    location.href = partyHomeUrl(loadPartySession()?.code);
+    return;
+  }
   ui.state = null;
   ui.view = "home";
   ui.error = message || "主催者に部屋から外されました";
@@ -309,6 +344,26 @@ function cardButton(
   </button>`;
 }
 
+function backLinkHtml() {
+  if (hasPartySession()) {
+    return `<a class="back" href="${partyHomeUrl(
+      loadPartySession()?.code || ui.state?.code
+    )}">← パーティー</a>`;
+  }
+  return `<a class="back" href="/">← パーティー</a>`;
+}
+
+function partyReturnBtnHtml(id = "back-party") {
+  if (!ui.state?.isHost) {
+    return hasPartySession()
+      ? `<p class="sub">主催者がパーティーに戻すまで待ってね</p>`
+      : "";
+  }
+  return `<button class="btn ghost" id="${id}" ${
+    ui.busy ? "disabled" : ""
+  }>パーティーに戻る</button>`;
+}
+
 function openRules(back = "home", tab = "howto") {
   ui.rulesBack = back;
   ui.rulesTab = tab === "cards" ? "cards" : "howto";
@@ -464,7 +519,7 @@ function renderRules() {
 function renderHome() {
   const tab = ui.rulesTab === "cards" ? "cards" : "howto";
   return `
-    <a class="back" href="/">← ゲーム選択</a>
+    ${backLinkHtml()}
     <h1>トラップゲーム</h1>
     <p class="sub">お酒をたらい回し。カードでかわして、なすりつけろ。</p>
     <div class="panel">
@@ -499,7 +554,7 @@ function renderLobby() {
   const s = ui.state;
   const tab = ui.rulesTab === "cards" ? "cards" : "howto";
   return `
-    <a class="back" href="/">← ゲーム選択</a>
+    ${backLinkHtml()}
     <h1>トラップゲーム</h1>
     <div class="panel">
       <div class="section-title">ルームコード</div>
@@ -531,6 +586,7 @@ function renderLobby() {
         : `<p class="sub">主催者の開始待ち…</p>`
     }
     <button class="btn ghost" id="leave-room" ${ui.busy ? "disabled" : ""} style="margin-top:12px">この部屋から出る</button>
+    ${partyReturnBtnHtml("back-party-lobby")}
     ${ui.error ? `<div class="error">${escapeHtml(ui.error)}</div>` : ""}
     <h2 class="rules-inline-title" style="margin-top:28px">${
       tab === "cards" ? "カード一覧" : "遊び方"
@@ -827,9 +883,12 @@ function renderPlaying() {
             <button type="button" class="btn ghost" id="abort-match" ${
               ui.busy ? "disabled" : ""
             }>試合を中止してロビーへ</button>
-            <p class="sub" style="margin:8px 0 0">バグで止まったとき用。主催者のみ。</p>
+            ${partyReturnBtnHtml("back-party-play")}
+            <p class="sub" style="margin:8px 0 0">パーティーに戻ると累計は持ち越し。主催者のみ。</p>
           </div>`
-        : ""
+        : `<div class="panel" style="margin-top:28px">${partyReturnBtnHtml(
+            "back-party-play"
+          )}</div>`
     }
     ${renderModals()}
   `;
@@ -905,9 +964,12 @@ function renderResult() {
       s.isHost
         ? `<div class="row">
             <button class="btn ok" id="next" ${ui.busy ? "disabled" : ""}>次の試合</button>
-            <button class="btn ghost" id="lobby" ${ui.busy ? "disabled" : ""}>ロビーへ</button>
-          </div>`
-        : `<p class="sub">主催者の操作待ち…</p>`
+            <button class="btn ghost" id="lobby" ${ui.busy ? "disabled" : ""}>ゲームロビーへ</button>
+          </div>
+          ${partyReturnBtnHtml("back-party-result")}`
+        : `<p class="sub">主催者の操作待ち…</p>${partyReturnBtnHtml(
+            "back-party-result"
+          )}`
     }
     ${ui.error ? `<div class="error">${escapeHtml(ui.error)}</div>` : ""}
   `;
@@ -1069,6 +1131,15 @@ function bind() {
       emit("back_to_lobby");
     }
   });
+  ["back-party", "back-party-lobby", "back-party-play", "back-party-result"].forEach(
+    (id) => {
+      app.querySelector(`#${id}`)?.addEventListener("click", () => {
+        if (confirm("パーティーに戻りますか？累計杯数は持ち越されます。")) {
+          emit("back_to_party");
+        }
+      });
+    }
+  );
   app.querySelector("#lose")?.addEventListener("click", () => emit("admit_lose"));
   app.querySelector("#close-peek")?.addEventListener("click", () =>
     emit("clear_peek")

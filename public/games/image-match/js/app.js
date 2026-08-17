@@ -28,9 +28,26 @@ if (params.get("room")) {
 }
 
 const SESSION_KEY = "meshin_session";
+const PARTY_KEY = "party_session";
+function loadPartySession() {
+  try {
+    return JSON.parse(localStorage.getItem(PARTY_KEY) || "null");
+  } catch {
+    return null;
+  }
+}
+function hasPartySession() {
+  const p = loadPartySession();
+  return !!(p?.code && p?.playerId);
+}
 function loadSession() {
   try {
-    return JSON.parse(localStorage.getItem(SESSION_KEY) || "null");
+    const party = loadPartySession();
+    const local = JSON.parse(localStorage.getItem(SESSION_KEY) || "null");
+    if (party?.code && party?.playerId) {
+      if (!ui.joinCode || party.code === ui.joinCode) return party;
+    }
+    return local;
   } catch {
     return null;
   }
@@ -38,20 +55,29 @@ function loadSession() {
 function saveSession(code, playerId) {
   if (code && playerId) {
     localStorage.setItem(SESSION_KEY, JSON.stringify({ code, playerId }));
+    localStorage.setItem(PARTY_KEY, JSON.stringify({ code, playerId }));
   }
 }
 function clearSession() {
   localStorage.removeItem(SESSION_KEY);
+}
+function partyHomeUrl(code) {
+  return code ? `/?room=${encodeURIComponent(code)}` : "/";
 }
 function tryRejoin() {
   const sess = loadSession();
   if (!sess?.code || !sess?.playerId) return;
   socket.emit("rejoin", { code: sess.code, playerId: sess.playerId }, (res) => {
     if (res?.ok) {
+      saveSession(res.code, res.playerId);
       history.replaceState({}, "", `?room=${res.code}`);
       return;
     }
     clearSession();
+    if (hasPartySession()) {
+      location.href = partyHomeUrl(loadPartySession()?.code);
+      return;
+    }
     ui.state = null;
     ui.view = "home";
     if (res?.error === "この部屋にいません") {
@@ -61,8 +87,15 @@ function tryRejoin() {
   });
 }
 socket.on("connect", tryRejoin);
+socket.on("go_party", ({ code } = {}) => {
+  location.href = partyHomeUrl(code || loadPartySession()?.code || ui.state?.code);
+});
 socket.on("kicked", ({ message } = {}) => {
   clearSession();
+  if (hasPartySession()) {
+    location.href = partyHomeUrl(loadPartySession()?.code);
+    return;
+  }
   ui.state = null;
   ui.view = "home";
   ui.error = message || "主催者に部屋から外されました";
@@ -264,7 +297,11 @@ function renderRules() {
 function renderHome() {
   return `
   <div class="screen">
-    <p style="margin:0 0 8px"><a href="/" style="color:var(--accent-2);font-weight:800;text-decoration:none;font-size:0.85rem">← ゲーム選択</a></p>
+    <p style="margin:0 0 8px"><a href="${
+      hasPartySession()
+        ? partyHomeUrl(loadPartySession()?.code || ui.state?.code)
+        : "/"
+    }" style="color:var(--accent-2);font-weight:800;text-decoration:none;font-size:0.85rem">← パーティー</a></p>
     <div class="brand">
       <div class="app-name">飲みゲーパーティー</div>
       <div class="logo"><span>画像で全員一致</span></div>
@@ -367,6 +404,11 @@ function renderLobby() {
       }
       <div class="btn-row">
         <button class="btn btn-ghost" id="btn-leave">この部屋から出る</button>
+        ${
+          isHost
+            ? `<button class="btn btn-ghost" id="btn-party">パーティーに戻る</button>`
+            : ""
+        }
       </div>
       <p class="share-url">${escapeHtml(share)}</p>
       <div class="btn-row">
@@ -586,9 +628,10 @@ function renderDone() {
       ${
         s.you?.isHost
           ? `<div class="btn-row">
-              <button class="btn btn-primary" id="btn-lobby" ${ui.busy ? "disabled" : ""}>ロビーに戻る</button>
+              <button class="btn btn-primary" id="btn-lobby" ${ui.busy ? "disabled" : ""}>ゲームロビーへ</button>
+              <button class="btn btn-ghost" id="btn-party" ${ui.busy ? "disabled" : ""}>パーティーに戻る</button>
             </div>`
-          : `<p class="wait">主催者がロビーに戻すまで待ってね</p>`
+          : `<p class="wait">主催者が戻すまで待ってね</p>`
       }
     </div>
   </div>`;
@@ -829,6 +872,14 @@ function bindEvents() {
   const lobbyBtn = document.getElementById("btn-lobby");
   if (lobbyBtn) {
     lobbyBtn.addEventListener("click", () => emit("back_to_lobby"));
+  }
+  const partyBtn = document.getElementById("btn-party");
+  if (partyBtn) {
+    partyBtn.addEventListener("click", () => {
+      if (confirm("パーティーに戻りますか？累計杯数は持ち越されます。")) {
+        emit("back_to_party");
+      }
+    });
   }
 }
 

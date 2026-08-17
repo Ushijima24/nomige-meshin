@@ -1,0 +1,167 @@
+:root {
+  --text: #fff8f0;
+  --muted: #cbb8e8;
+  --accent: #ffd84d;
+  --accent2: #5ef0e0;
+  --ok: #5ee0a0;
+  --danger: #ff5c7a;
+  --font: "M PLUS Rounded 1c", sans-serif;
+}
+* { box-sizing: border-box; }
+body {
+  margin: 0;
+  min-height: 100dvh;
+  font-family: var(--font);
+  color: var(--text);
+  background:
+    radial-gradient(ellipse 120% 80% at 10% -10%, #6b3fa0 0%, transparent 55%),
+    radial-gradient(ellipse 90% 70% at 100% 0%, #e85d75 0%, transparent 45%),
+    linear-gradient(165deg, #1a0f2e, #2d1b4e 45%, #231340);
+  padding: 24px 16px 40px;
+}
+#app { max-width: 480px; margin: 0 auto; }
+.brand { text-align: center; margin: 20px 0 24px; }
+.brand .name {
+  font-size: 0.9rem;
+  letter-spacing: 0.14em;
+  color: var(--accent2);
+  font-weight: 800;
+}
+.brand h1 {
+  margin: 8px 0 0;
+  font-size: 2rem;
+  background: linear-gradient(120deg, var(--accent), #fff, var(--accent2));
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+.brand p { color: var(--muted); margin-top: 10px; font-weight: 700; line-height: 1.45; }
+.panel {
+  background: rgba(255,255,255,0.1);
+  border: 1px solid rgba(255,255,255,0.18);
+  border-radius: 18px;
+  padding: 16px;
+  margin-bottom: 12px;
+}
+label {
+  display: block;
+  font-size: 0.8rem;
+  font-weight: 800;
+  color: var(--accent);
+  margin: 10px 0 6px;
+}
+input[type="text"] {
+  width: 100%;
+  padding: 12px 14px;
+  border-radius: 12px;
+  border: 1px solid rgba(255,255,255,0.2);
+  background: rgba(0,0,0,0.25);
+  color: var(--text);
+  font: inherit;
+  font-weight: 700;
+}
+.avatars { display: flex; flex-wrap: wrap; gap: 8px; }
+.avatars button {
+  width: 44px; height: 44px; font-size: 1.35rem;
+  border-radius: 12px; border: 1px solid rgba(255,255,255,0.18);
+  background: rgba(0,0,0,0.2); cursor: pointer;
+}
+.avatars button.on { border-color: var(--accent); background: rgba(255,216,77,0.2); }
+.btn {
+  display: inline-block;
+  width: 100%;
+  margin-top: 10px;
+  padding: 14px 16px;
+  border: none;
+  border-radius: 14px;
+  font: inherit;
+  font-weight: 800;
+  background: linear-gradient(120deg, #ffd84d, #ff9f43);
+  color: #2a1800;
+  cursor: pointer;
+}
+.btn:disabled { opacity: 0.45; cursor: not-allowed; }
+.btn.ghost {
+  background: transparent;
+  border: 1px solid rgba(255,255,255,0.25);
+  color: var(--text);
+}
+.btn.danger {
+  background: transparent;
+  border: 1px solid var(--danger);
+  color: var(--danger);
+}
+.row { display: flex; gap: 8px; }
+.row .btn { flex: 1; }
+.error {
+  margin-top: 10px;
+  color: #ffb4c0;
+  font-weight: 700;
+  font-size: 0.9rem;
+}
+.code-big {
+  text-align: center;
+  font-size: 2.4rem;
+  font-weight: 800;
+  letter-spacing: 0.2em;
+  color: var(--accent);
+}
+.section-title {
+  font-size: 0.8rem;
+  font-weight: 800;
+  color: var(--accent);
+  letter-spacing: 0.06em;
+  margin: 0 0 8px;
+}
+.players { display: grid; gap: 8px; }
+.player-chip {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: rgba(0,0,0,0.22);
+  border: 1px solid rgba(255,255,255,0.12);
+}
+.player-chip.off { opacity: 0.45; }
+.player-chip .av { font-size: 1.4rem; }
+.player-chip .nm { font-weight: 800; flex: 1; }
+.player-chip .meta { font-size: 0.78rem; font-weight: 700; color: var(--muted); text-align: right; }
+.badge {
+  display: inline-block;
+  font-size: 0.68rem;
+  font-weight: 800;
+  padding: 2px 6px;
+  border-radius: 999px;
+  background: rgba(255,255,255,0.12);
+  margin-left: 4px;
+}
+.badge.host { background: rgba(255,216,77,0.25); color: var(--accent); }
+.badge.drink { background: rgba(255,92,122,0.25); color: #ffb4c0; }
+.game-pick {
+  display: block;
+  width: 100%;
+  text-align: left;
+  margin-top: 10px;
+  padding: 16px;
+  border-radius: 16px;
+  border: 1px solid rgba(255,255,255,0.18);
+  background: rgba(255,255,255,0.08);
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+.game-pick:disabled { opacity: 0.4; cursor: not-allowed; }
+.game-pick .title { font-size: 1.15rem; font-weight: 800; color: var(--accent); }
+.game-pick .desc { margin-top: 6px; color: var(--muted); font-weight: 700; font-size: 0.9rem; line-height: 1.45; }
+.sub { color: var(--muted); font-weight: 700; font-size: 0.88rem; line-height: 1.45; }
+.kick {
+  padding: 4px 8px;
+  font-size: 0.7rem;
+  font-weight: 800;
+  border-radius: 8px;
+  border: 1px solid rgba(255,255,255,0.25);
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+}

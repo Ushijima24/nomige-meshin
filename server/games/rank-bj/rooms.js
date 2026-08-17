@@ -98,6 +98,61 @@ export function createRoom(name, avatar) {
   return { room, playerId };
 }
 
+export function createFromParty(partySnap) {
+  const roomCode = String(partySnap.code || "").toUpperCase();
+  if (!roomCode) return { error: "コードなし" };
+  if (rooms.has(roomCode)) rooms.delete(roomCode);
+
+  const room = {
+    code: roomCode,
+    hostId: partySnap.hostId,
+    players: new Map(),
+    phase: "lobby",
+    playStep: null,
+    topicChoices: [],
+    lastChoiceSlugs: [],
+    currentTopic: null,
+    judgeQueue: [],
+    result: null,
+    match: 0,
+    draw: 0,
+    dealRevealed: false,
+    bannedNames: new Set(),
+    partyOwned: true,
+  };
+
+  for (const p of partySnap.players || []) {
+    const bp = blankPlayer(
+      p.id,
+      p.name,
+      sanitizeAvatar(p.avatar),
+      p.id === partySnap.hostId,
+      !!p.isBot
+    );
+    bp.drinkTotal = Math.max(0, Number(p.drinkTotal) || 0);
+    room.players.set(p.id, bp);
+  }
+  rooms.set(roomCode, room);
+  return { room };
+}
+
+export function exportDrinkTotals(room) {
+  const o = {};
+  for (const p of room.players.values()) o[p.id] = p.drinkTotal || 0;
+  return o;
+}
+
+export function destroyRoom(code) {
+  rooms.delete(String(code || "").toUpperCase());
+}
+
+export function resetDrinkTotals(room) {
+  for (const p of room.players.values()) {
+    p.drinkTotal = 0;
+    p.drinksThisRound = 0;
+  }
+}
+
 export function getRoom(roomCode) {
   return rooms.get(String(roomCode || "").toUpperCase()) || null;
 }

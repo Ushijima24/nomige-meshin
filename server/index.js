@@ -24,6 +24,9 @@ import {
   removeBot,
   rejoinRoom,
   kickFromLobby,
+  createFromParty as createImageFromParty,
+  destroyRoom as destroyImageMatchRoom,
+  exportDrinkTotals as exportImageDrinkTotals,
   answerAsBot,
   listBotsNeedingAnswer,
   castVote,
@@ -34,6 +37,7 @@ import { questionCount, imagesDir } from "./games/image-match/questions.js";
 import * as trap from "./games/trap/rooms.js";
 import { CARD_LIST, RANK_RATES, cardLabel } from "./games/trap/cards.js";
 import * as rankBj from "./games/rank-bj/rooms.js";
+import * as party from "./party/rooms.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const publicDir = path.join(__dirname, "..", "public");
@@ -361,10 +365,19 @@ io.on("connection", (socket) => {
     if (!sess) return cb?.({ ok: false, error: "未参加" });
     const room = getRoom(sess.roomCode);
     if (!room) return cb?.({ ok: false, error: "ルームなし" });
+    if (room.partyOwned) {
+      return handleGameBackToParty(sess.roomCode, sess.playerId, cb);
+    }
     const result = backToLobby(room, sess.playerId);
     if (result.error) return cb?.({ ok: false, error: result.error });
     cb?.({ ok: true });
     emitRoom(room);
+  });
+
+  socket.on("back_to_party", (_data, cb) => {
+    const sess = sessions.get(socket.id);
+    if (!sess) return cb?.({ ok: false, error: "未参加" });
+    handleGameBackToParty(sess.roomCode, sess.playerId, cb);
   });
 
   socket.on("disconnect", () => {
@@ -610,10 +623,19 @@ io.of("/trap").on("connection", (socket) => {
     if (!sess) return cb?.({ ok: false, error: "未参加" });
     const room = trap.getRoom(sess.roomCode);
     if (!room) return cb?.({ ok: false, error: "ルームなし" });
+    if (room.partyOwned) {
+      return handleGameBackToParty(sess.roomCode, sess.playerId, cb);
+    }
     const result = trap.backToLobby(room, sess.playerId);
     if (result.error) return cb?.({ ok: false, error: result.error });
     cb?.({ ok: true });
     emitTrap(room);
+  });
+
+  socket.on("back_to_party", (_data, cb) => {
+    const sess = trapSessions.get(socket.id);
+    if (!sess) return cb?.({ ok: false, error: "未参加" });
+    handleGameBackToParty(sess.roomCode, sess.playerId, cb);
   });
 
   socket.on("disconnect", () => {
@@ -875,10 +897,19 @@ io.of("/rank-bj").on("connection", (socket) => {
     if (!sess) return cb?.({ ok: false, error: "未参加" });
     const room = rankBj.getRoom(sess.roomCode);
     if (!room) return cb?.({ ok: false, error: "ルームなし" });
+    if (room.partyOwned) {
+      return handleGameBackToParty(sess.roomCode, sess.playerId, cb);
+    }
     const result = rankBj.backToLobby(room, sess.playerId);
     if (result.error) return cb?.({ ok: false, error: result.error });
     cb?.({ ok: true });
     emitRankBj(room);
+  });
+
+  socket.on("back_to_party", (_data, cb) => {
+    const sess = rankBjSessions.get(socket.id);
+    if (!sess) return cb?.({ ok: false, error: "未参加" });
+    handleGameBackToParty(sess.roomCode, sess.playerId, cb);
   });
 
   socket.on("disconnect", () => {
@@ -894,6 +925,275 @@ io.of("/rank-bj").on("connection", (socket) => {
     rankBj.setConnected(room, sess.playerId, false);
     emitRankBj(room);
     rankBjGrace.schedule(sess.roomCode, sess.playerId);
+  });
+});
+
+/** ---- パーティー (/party) 共通ロビー ---- */
+const partySessions = new Map();
+
+function emitParty(room) {
+  if (!room) return;
+  for (const [sid, sess] of partySessions) {
+    if (sess.roomCode !== room.code) continue;
+    const sock = io.of("/party").sockets.get(sid);
+    if (sock) sock.emit("state", party.publicState(room, sess.playerId));
+  }
+}
+
+const partyGrace = createGraceTracker(
+  partySessions,
+  (c) => party.getRoom(c),
+  (room, id) => party.leaveRoom(room, id),
+  emitParty
+);
+
+function bindParty(socket, roomCode, playerId) {
+  partySessions.set(socket.id, { roomCode, playerId });
+  socket.join(roomCode);
+  partyGrace.cancel(roomCode, playerId);
+}
+
+function partySnap(room) {
+  return {
+    code: room.code,
+    hostId: room.hostId,
+    players: party.snapshotPlayers(room),
+  };
+}
+
+function syncDrinksFromGame(partyRoom, gameId) {
+  let totals = null;
+  if (gameId === "trap") {
+    const g = trap.getRoom(partyRoom.code);
+    if (g) totals = trap.exportDrinkTotals(g);
+  } else if (gameId === "image-match") {
+    const g = getRoom(partyRoom.code);
+    if (g) totals = exportImageDrinkTotals(g);
+  } else if (gameId === "rank-bj") {
+    const g = rankBj.getRoom(partyRoom.code);
+    if (g) totals = rankBj.exportDrinkTotals(g);
+  }
+  if (totals) party.applyDrinkTotals(partyRoom, totals);
+}
+
+function destroyGameRoom(code, gameId) {
+  if (gameId === "trap") trap.destroyRoom(code);
+  else if (gameId === "image-match") destroyImageMatchRoom(code);
+  else if (gameId === "rank-bj") rankBj.destroyRoom(code);
+}
+
+function notifyEnterGame(partyRoom, gameMeta) {
+  for (const [sid, sess] of partySessions) {
+    if (sess.roomCode !== partyRoom.code) continue;
+    const sock = io.of("/party").sockets.get(sid);
+    sock?.emit("enter_game", {
+      game: gameMeta.id,
+      path: gameMeta.path,
+      code: partyRoom.code,
+      playerId: sess.playerId,
+    });
+  }
+}
+
+function notifyGoParty(code) {
+  const payloads = [
+    [trapSessions, io.of("/trap")],
+    [sessions, io],
+    [rankBjSessions, io.of("/rank-bj")],
+  ];
+  for (const [sessMap, nsp] of payloads) {
+    for (const [sid, sess] of sessMap) {
+      if (sess.roomCode !== code) continue;
+      const sock = nsp === io ? io.sockets.sockets.get(sid) : nsp.sockets.get(sid);
+      sock?.emit("go_party", { code });
+    }
+  }
+}
+
+function returnEveryoneToParty(partyRoom) {
+  const gameId = partyRoom.currentGame;
+  if (gameId) {
+    syncDrinksFromGame(partyRoom, gameId);
+    destroyGameRoom(partyRoom.code, gameId);
+  }
+  party.clearGame(partyRoom);
+  notifyGoParty(partyRoom.code);
+  emitParty(partyRoom);
+}
+
+function handleGameBackToParty(roomCode, playerId, cb) {
+  const room = party.getRoom(roomCode);
+  if (!room) return cb?.({ ok: false, error: "パーティーなし" });
+  if (playerId !== room.hostId) return cb?.({ ok: false, error: "主催者のみ" });
+  returnEveryoneToParty(room);
+  cb?.({ ok: true });
+}
+
+io.of("/party").on("connection", (socket) => {
+  socket.on("create_room", ({ name, avatar }, cb) => {
+    try {
+      const { room, playerId } = party.createRoom(name, avatar);
+      bindParty(socket, room.code, playerId);
+      cb?.({ ok: true, playerId, code: room.code });
+      emitParty(room);
+    } catch (e) {
+      cb?.({ ok: false, error: e.message || "作成失敗" });
+    }
+  });
+
+  socket.on("join_room", ({ code, name, avatar }, cb) => {
+    try {
+      const result = party.joinRoom(code, name, avatar);
+      if (result.error) return cb?.({ ok: false, error: result.error });
+      bindParty(socket, result.room.code, result.playerId);
+      cb?.({ ok: true, playerId: result.playerId, code: result.room.code });
+      emitParty(result.room);
+    } catch (e) {
+      cb?.({ ok: false, error: e.message || "参加失敗" });
+    }
+  });
+
+  socket.on("rejoin", ({ code, playerId }, cb) => {
+    try {
+      const result = party.rejoinRoom(code, playerId);
+      if (result.error) return cb?.({ ok: false, error: result.error });
+      bindParty(socket, result.room.code, result.playerId);
+      party.setConnected(result.room, result.playerId, true);
+      cb?.({ ok: true, playerId: result.playerId, code: result.room.code });
+      emitParty(result.room);
+      if (result.room.phase === "in_game" && result.room.currentGame) {
+        const g = party.PARTY_GAMES.find((x) => x.id === result.room.currentGame);
+        if (g) {
+          socket.emit("enter_game", {
+            game: g.id,
+            path: g.path,
+            code: result.room.code,
+            playerId: result.playerId,
+          });
+        }
+      }
+    } catch (e) {
+      cb?.({ ok: false, error: e.message || "復帰失敗" });
+    }
+  });
+
+  socket.on("add_bot", (_data, cb) => {
+    const sess = partySessions.get(socket.id);
+    if (!sess) return cb?.({ ok: false, error: "未参加" });
+    const room = party.getRoom(sess.roomCode);
+    if (!room) return cb?.({ ok: false, error: "ルームなし" });
+    const result = party.addBot(room, sess.playerId);
+    if (result.error) return cb?.({ ok: false, error: result.error });
+    cb?.({ ok: true });
+    emitParty(room);
+  });
+
+  socket.on("kick_player", ({ playerId }, cb) => {
+    const sess = partySessions.get(socket.id);
+    if (!sess) return cb?.({ ok: false, error: "未参加" });
+    const room = party.getRoom(sess.roomCode);
+    if (!room) return cb?.({ ok: false, error: "ルームなし" });
+    const result = party.kickFromLobby(room, sess.playerId, playerId);
+    if (result.error) return cb?.({ ok: false, error: result.error });
+    notifyKicked(
+      (sid) => io.of("/party").sockets.get(sid),
+      partySessions,
+      room.code,
+      result.kickedId,
+      `${result.kickedName} は部屋から外されました`
+    );
+    partyGrace.cancel(room.code, result.kickedId);
+    cb?.({ ok: true });
+    emitParty(room);
+  });
+
+  socket.on("leave_room", (_data, cb) => {
+    const sess = partySessions.get(socket.id);
+    if (!sess) return cb?.({ ok: true });
+    partySessions.delete(socket.id);
+    socket.leave(sess.roomCode);
+    partyGrace.cancel(sess.roomCode, sess.playerId);
+    const room = party.getRoom(sess.roomCode);
+    if (room) {
+      const updated = party.leaveRoom(room, sess.playerId);
+      if (updated) emitParty(updated);
+    }
+    cb?.({ ok: true });
+  });
+
+  socket.on("reset_drinks", (_data, cb) => {
+    const sess = partySessions.get(socket.id);
+    if (!sess) return cb?.({ ok: false, error: "未参加" });
+    const room = party.getRoom(sess.roomCode);
+    if (!room) return cb?.({ ok: false, error: "ルームなし" });
+    const result = party.resetDrinks(room, sess.playerId);
+    if (result.error) return cb?.({ ok: false, error: result.error });
+    if (room.currentGame === "trap") {
+      const g = trap.getRoom(room.code);
+      if (g) trap.resetDrinkTotals(g);
+    } else if (room.currentGame === "image-match") {
+      const g = getRoom(room.code);
+      if (g) {
+        for (const id of g.players.keys()) g.drinkTotals.set(id, 0);
+      }
+    } else if (room.currentGame === "rank-bj") {
+      const g = rankBj.getRoom(room.code);
+      if (g) rankBj.resetDrinkTotals(g);
+    }
+    cb?.({ ok: true });
+    emitParty(room);
+  });
+
+  socket.on("select_game", ({ gameId }, cb) => {
+    const sess = partySessions.get(socket.id);
+    if (!sess) return cb?.({ ok: false, error: "未参加" });
+    const room = party.getRoom(sess.roomCode);
+    if (!room) return cb?.({ ok: false, error: "ルームなし" });
+    if (sess.playerId !== room.hostId) return cb?.({ ok: false, error: "主催者のみ" });
+    if (room.phase !== "lobby") return cb?.({ ok: false, error: "すでにゲーム中です" });
+    if (room.players.size < 2) return cb?.({ ok: false, error: "2人以上必要です" });
+
+    const meta = party.PARTY_GAMES.find((g) => g.id === gameId);
+    if (!meta) return cb?.({ ok: false, error: "不明なゲーム" });
+
+    const snap = partySnap(room);
+    let spawned;
+    if (gameId === "trap") spawned = trap.createFromParty(snap);
+    else if (gameId === "image-match") spawned = createImageFromParty(snap);
+    else if (gameId === "rank-bj") spawned = rankBj.createFromParty(snap);
+    else return cb?.({ ok: false, error: "不明なゲーム" });
+
+    if (spawned?.error) return cb?.({ ok: false, error: spawned.error });
+
+    party.setInGame(room, gameId);
+    cb?.({ ok: true, path: meta.path, code: room.code });
+    emitParty(room);
+    notifyEnterGame(room, meta);
+  });
+
+  socket.on("return_to_party", (_data, cb) => {
+    const sess = partySessions.get(socket.id);
+    if (!sess) return cb?.({ ok: false, error: "未参加" });
+    const room = party.getRoom(sess.roomCode);
+    if (!room) return cb?.({ ok: false, error: "ルームなし" });
+    if (sess.playerId !== room.hostId) return cb?.({ ok: false, error: "主催者のみ" });
+    returnEveryoneToParty(room);
+    cb?.({ ok: true });
+  });
+
+  socket.on("disconnect", () => {
+    const sess = partySessions.get(socket.id);
+    if (!sess) return;
+    partySessions.delete(socket.id);
+    const stillHere = [...partySessions.values()].some(
+      (s) => s.roomCode === sess.roomCode && s.playerId === sess.playerId
+    );
+    if (stillHere) return;
+    const room = party.getRoom(sess.roomCode);
+    if (!room) return;
+    party.setConnected(room, sess.playerId, false);
+    emitParty(room);
+    partyGrace.schedule(sess.roomCode, sess.playerId);
   });
 });
 
