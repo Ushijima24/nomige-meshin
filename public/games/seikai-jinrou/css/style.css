@@ -31,6 +31,13 @@ body {
   padding: 16px 14px calc(28px + env(safe-area-inset-bottom));
 }
 
+.screen-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  margin: 0 0 12px;
+}
 a.back, button.linkish {
   background: none;
   border: none;
@@ -140,39 +147,6 @@ input[type="text"] {
   font-weight: 700;
   margin: 8px 0;
   font-size: 0.9rem;
-}
-
-.code-big {
-  font-size: 2rem;
-  letter-spacing: 0.2em;
-  font-weight: 800;
-  color: var(--accent);
-  text-align: center;
-  margin: 8px 0;
-}
-
-.players {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(104px, 1fr));
-  gap: 8px;
-}
-.player-chip {
-  background: rgba(0, 0, 0, 0.28);
-  border: 1px solid var(--line);
-  border-radius: 12px;
-  padding: 10px 8px;
-  text-align: center;
-  position: relative;
-}
-.player-chip.off { opacity: 0.45; }
-.player-chip.bot { border-style: dashed; }
-.player-chip .av { font-size: 1.4rem; }
-.player-chip .nm { font-size: 0.78rem; font-weight: 800; margin-top: 4px; }
-.kick {
-  margin-top: 6px;
-  font-size: 0.7rem;
-  padding: 4px 8px;
-  width: auto;
 }
 
 .meta-bar {

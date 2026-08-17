@@ -189,25 +189,6 @@ function bindTimer() {
   timerTick = setInterval(update, 200);
 }
 
-function playersHtml(players, { canRemove = false } = {}) {
-  return `<div class="players">${players
-    .map((p) => {
-      const flags = [];
-      if (p.isHost) flags.push("主催");
-      if (p.isBot) flags.push("PC");
-      return `<div class="player-chip ${p.connected ? "" : "off"} ${p.isBot ? "bot" : ""}">
-        <div class="av">${p.avatar}</div>
-        <div class="nm">${escapeHtml(p.name)}${flags.length ? `<br/><small>${flags.join(" ")}</small>` : ""}</div>
-        ${
-          canRemove && p.id !== ui.state?.you?.id
-            ? `<button type="button" class="btn ghost kick" data-kick="${p.id}">削除</button>`
-            : ""
-        }
-      </div>`;
-    })
-    .join("")}</div>`;
-}
-
 function drinkBoardHtml(board) {
   if (!board?.length) return "";
   return `<div class="drink-board"><div class="drink-board-title">🍺 累計罰杯</div>${board
@@ -226,7 +207,7 @@ function rulesBodyHtml() {
     <div class="panel howto">
       <div class="section-title">1ラウンドの流れ</div>
       <ol>
-        <li>役職が配られる。人狼だけ自分の役が分かる</li>
+        <li>役職は参加者から毎回ランダム。人狼だけ自分の役が分かる</li>
         <li>お題が出る。主催者がタイマー開始 → 1分で1人1回答</li>
         <li>人狼はベストアンサーになってはいけない</li>
         <li>答えが全員バラバラなら、投票でベストアンサーを決める</li>
@@ -246,13 +227,27 @@ function rulesBodyHtml() {
     </div>`;
 }
 
-function rulesBtnHtml() {
-  return `<p style="margin:0 0 12px"><button type="button" class="linkish" id="open-rules">📖 遊び方</button></p>`;
+function partyBackHtml() {
+  if (ui.state) {
+    return `<button type="button" class="linkish" id="btn-party">← パーティーに戻る</button>`;
+  }
+  const href = hasPartySession() ? partyHomeUrl() : "/";
+  return `<a class="back" href="${href}">← パーティーに戻る</a>`;
+}
+
+function screenHeadHtml() {
+  return `<div class="screen-head">
+    ${partyBackHtml()}
+    <button type="button" class="linkish" id="open-rules">📖 遊び方</button>
+  </div>`;
 }
 
 function renderRules() {
   return `
-    <p><button type="button" class="linkish" id="rules-back">← 戻る</button></p>
+    <div class="screen-head">
+      ${partyBackHtml()}
+      <button type="button" class="linkish" id="rules-back">← 戻る</button>
+    </div>
     <div class="brand">
       <div class="app-name">飲みゲーパーティー</div>
       <h1>遊び方</h1>
@@ -264,13 +259,13 @@ function renderRules() {
 
 function renderHome() {
   return `
-    <p><a class="back" href="${hasPartySession() ? partyHomeUrl(loadPartySession()?.code) : "/"}">← パーティー</a></p>
+    <p>${partyBackHtml()}</p>
     <div class="brand">
       <div class="app-name">飲みゲーパーティー</div>
       <h1>朝までそれ正解人狼</h1>
       <p class="sub">人狼はベストアンサーになるな。お題に一番沿った答えと人狼を当てる。</p>
     </div>
-    ${rulesBtnHtml()}
+    <p style="margin:0 0 12px"><button type="button" class="linkish" id="open-rules">📖 遊び方</button></p>
     <div class="panel">
       <label>なまえ</label>
       <input type="text" id="name" maxlength="12" placeholder="例：たろう" value="${escapeHtml(ui.name)}" />
@@ -289,6 +284,7 @@ function renderHome() {
 
 function renderJoining() {
   return `
+    <p>${partyBackHtml()}</p>
     <div class="brand">
       <div class="app-name">飲みゲーパーティー</div>
       <h1>朝までそれ正解人狼</h1>
@@ -300,27 +296,17 @@ function renderLobby() {
   const s = ui.state;
   const isHost = s.you?.isHost;
   return `
+    <p>${partyBackHtml()}</p>
     <div class="brand">
       <div class="app-name">飲みゲーパーティー</div>
       <h1>朝までそれ正解人狼</h1>
-      <div class="code-big">${escapeHtml(s.code)}</div>
     </div>
     ${
       isHost
-        ? `<button class="btn" id="btn-start" ${s.players.length < 3 || ui.busy ? "disabled" : ""}>ゲーム開始（3人〜）</button>
-           <button class="btn ghost" id="btn-party" ${ui.busy ? "disabled" : ""}>ゲーム選択に戻る</button>`
+        ? `<button class="btn" id="btn-start" ${s.players.length < 3 || ui.busy ? "disabled" : ""}>ゲーム開始（3人〜）</button>`
         : `<p class="wait">主催者の開始待ち…</p>`
     }
     ${ui.error ? `<div class="error">${escapeHtml(ui.error)}</div>` : ""}
-    <div class="panel">
-      <div class="section-title">参加者 ${s.players.length}/10</div>
-      ${playersHtml(s.players, { canRemove: isHost })}
-      ${
-        isHost
-          ? `<button class="btn ghost" id="btn-add-bot" ${ui.busy || s.players.length >= 10 ? "disabled" : ""}>＋PC参加</button>`
-          : ""
-      }
-    </div>
     ${rulesBodyHtml()}`;
 }
 
@@ -343,7 +329,7 @@ function renderAnswering() {
   const running = s.timer?.running;
   const left = running ? Math.max(0, s.timer.endsAt - Date.now()) : null;
   return `
-    ${rulesBtnHtml()}
+    ${screenHeadHtml()}
     <div class="meta-bar"><span class="pill">ラウンド ${s.round}</span><span>${s.answeredCount}/${s.expectedCount} 回答</span></div>
     ${roleHtml(s)}
     ${topicHtml(s)}
@@ -371,15 +357,14 @@ function renderAnswering() {
           ? `<button class="btn ghost" id="btn-close" ${ui.busy ? "disabled" : ""}>回答をしめ切る</button>`
           : ""
       }
-    </div>
-    ${playersHtml(s.players)}`;
+    </div>`;
 }
 
 function renderReview() {
   const s = ui.state;
   const isHost = s.you?.isHost;
   return `
-    ${rulesBtnHtml()}
+    ${screenHeadHtml()}
     <div class="meta-bar"><span class="pill">答え合わせ</span><span>ラウンド ${s.round}</span></div>
     ${topicHtml(s)}
     <div class="panel">
@@ -425,7 +410,7 @@ function renderReview() {
 function renderVoteBa() {
   const s = ui.state;
   return `
-    ${rulesBtnHtml()}
+    ${screenHeadHtml()}
     <div class="meta-bar"><span class="pill">ベストアンサー投票</span><span>${s.voteCount}/${s.voteExpected}</span></div>
     ${topicHtml(s)}
     <div class="panel">
@@ -498,7 +483,7 @@ function renderVoteWolf() {
   }
 
   return `
-    ${rulesBtnHtml()}
+    ${screenHeadHtml()}
     <div class="meta-bar"><span class="pill">${pill}</span><span>${meta}</span></div>
     ${topicHtml(s)}
     <div class="panel">
@@ -526,7 +511,7 @@ function renderResult() {
         .join("")}</div>`
     : `<p class="wait">飲む人なし</p>`;
   return `
-    ${rulesBtnHtml()}
+    ${screenHeadHtml()}
     <div class="meta-bar"><span class="pill">結果</span><span>ラウンド ${s.round}</span></div>
     ${banner}
     <div class="panel">
@@ -538,8 +523,7 @@ function renderResult() {
       ${ui.error ? `<div class="error">${escapeHtml(ui.error)}</div>` : ""}
       ${
         s.you?.isHost
-          ? `<button class="btn" id="btn-next" ${ui.busy ? "disabled" : ""}>次のラウンド</button>
-             <button class="btn ghost" id="btn-party" ${ui.busy ? "disabled" : ""}>パーティーに戻る</button>`
+          ? `<button class="btn" id="btn-next" ${ui.busy ? "disabled" : ""}>次のラウンド</button>`
           : `<p class="wait">主催者の「次へ」待ち…</p>`
       }
     </div>`;
@@ -616,11 +600,7 @@ function bindEvents() {
     }
   });
   document.getElementById("btn-start")?.addEventListener("click", () => emit("start_game"));
-  document.getElementById("btn-add-bot")?.addEventListener("click", () => emit("add_bot"));
   document.getElementById("btn-party")?.addEventListener("click", () => goBackToParty());
-  document.querySelectorAll("[data-kick]").forEach((b) =>
-    b.addEventListener("click", () => emit("kick_player", { playerId: b.getAttribute("data-kick") }))
-  );
 
   const answerEl = document.getElementById("answer");
   if (answerEl) {
