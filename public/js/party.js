@@ -137,7 +137,8 @@ function renderLobby() {
     <div class="brand">
       <div class="name">NOMI GE PARTY</div>
       <h1>パーティー</h1>
-      <p>コード <strong>${escapeHtml(s.code)}</strong>　そろったらゲームを選んでね</p>
+      <div class="code-big">${escapeHtml(s.code)}</div>
+      <p>このコードを共有して、そろったらゲームを選んでね</p>
     </div>
     <div class="panel">
       <div class="section-title">${s.isHost ? "ゲームを選ぶ" : "主催者の選択待ち"}</div>

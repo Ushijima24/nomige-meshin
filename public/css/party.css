@@ -105,10 +105,12 @@ input[type="text"] {
 }
 .code-big {
   text-align: center;
-  font-size: 2.4rem;
+  font-size: 3.4rem;
   font-weight: 800;
-  letter-spacing: 0.2em;
+  letter-spacing: 0.22em;
   color: var(--accent);
+  line-height: 1.1;
+  margin: 12px 0 4px;
 }
 .section-title {
   font-size: 0.8rem;
