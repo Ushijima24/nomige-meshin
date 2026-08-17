@@ -611,9 +611,6 @@ function renderResult() {
   const baTally = voteTallyHtml("ベストアンサー投票の内訳", s.baVoteTally, {
     hostPick: !!s.baVoteByHost,
   });
-  const wolfTally = voteTallyHtml("人狼投票の内訳", s.wolfVoteTally, {
-    skipped: s.resultKind === "wolf_ba" && !(s.wolfVoteTally || []).length,
-  });
   return `
     ${screenHeadHtml()}
     <div class="meta-bar"><span class="pill">結果</span><span>ラウンド ${s.round}</span></div>
@@ -625,7 +622,6 @@ function renderResult() {
       <p class="sub" style="margin:0 0 8px">ベストアンサー「${escapeHtml(s.bestAnswer?.label || "")}」</p>
       ${s.accused ? `<p class="sub" style="margin:0 0 12px">人狼指名 ${s.accused.avatar} ${escapeHtml(s.accused.name)}</p>` : ""}
       ${baTally}
-      ${wolfTally}
       ${drinks}
       ${drinkBoardHtml(s.drinkBoard)}
       ${ui.error ? `<div class="error">${escapeHtml(ui.error)}</div>` : ""}
