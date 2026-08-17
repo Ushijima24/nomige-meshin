@@ -454,11 +454,11 @@ function renderRules() {
 }
 
 function renderHome() {
+  const tab = ui.rulesTab === "cards" ? "cards" : "howto";
   return `
     <a class="back" href="/">← ゲーム選択</a>
     <h1>トラップゲーム</h1>
     <p class="sub">お酒をたらい回し。カードでかわして、なすりつけろ。</p>
-    <button type="button" class="btn ghost" id="open-rules" style="margin-bottom:14px">📖 遊び方・カード</button>
     <div class="panel">
       <label>なまえ</label>
       <input type="text" id="name" maxlength="12" value="${escapeHtml(
@@ -481,23 +481,18 @@ function renderHome() {
       <button class="btn ghost" id="join" ${ui.busy ? "disabled" : ""}>参加する</button>
       ${ui.error ? `<div class="error">${escapeHtml(ui.error)}</div>` : ""}
     </div>
-    <div class="panel">
-      <div class="section-title">ざっくりルール</div>
-      <ul class="howto-list compact">
-        <li>酒が回ってきた人がカードを使う</li>
-        <li>渡せば次の人へ。負けを認めると飲む</li>
-        <li>カードの効果で量が増えたり、無敵になったりする</li>
-      </ul>
-      <p class="hint">くわしくは上の「遊び方・カード」へ（タブで切り替え）。</p>
-    </div>`;
+    <h2 class="rules-inline-title">${tab === "cards" ? "カード一覧" : "遊び方"}</h2>
+    ${renderRulesTabs()}
+    ${tab === "cards" ? renderCardsTab() : renderHowtoTab()}
+  `;
 }
 
 function renderLobby() {
   const s = ui.state;
+  const tab = ui.rulesTab === "cards" ? "cards" : "howto";
   return `
     <a class="back" href="/">← ゲーム選択</a>
     <h1>トラップゲーム</h1>
-    <button type="button" class="btn ghost" id="open-rules" style="margin-bottom:14px">📖 遊び方・カード</button>
     <div class="panel">
       <div class="section-title">ルームコード</div>
       <div class="code-big">${escapeHtml(s.code)}</div>
@@ -529,6 +524,11 @@ function renderLobby() {
     }
     <button class="btn ghost" id="leave-room" ${ui.busy ? "disabled" : ""} style="margin-top:12px">この部屋から出る</button>
     ${ui.error ? `<div class="error">${escapeHtml(ui.error)}</div>` : ""}
+    <h2 class="rules-inline-title" style="margin-top:28px">${
+      tab === "cards" ? "カード一覧" : "遊び方"
+    }</h2>
+    ${renderRulesTabs()}
+    ${tab === "cards" ? renderCardsTab() : renderHowtoTab()}
   `;
 }
 
