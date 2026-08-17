@@ -1123,7 +1123,29 @@ io.of("/seikai-jinrou").on("connection", (socket) => {
     if (result.error) return cb?.({ ok: false, error: result.error });
     cb?.({ ok: true });
     emitSeikai(room);
+  });
+
+  socket.on("pick_topic", ({ topicId }, cb) => {
+    const sess = seikaiSessions.get(socket.id);
+    if (!sess) return cb?.({ ok: false, error: "未参加" });
+    const room = seikaiJinrou.getRoom(sess.roomCode);
+    if (!room) return cb?.({ ok: false, error: "ルームなし" });
+    const result = seikaiJinrou.pickTopic(room, sess.playerId, topicId);
+    if (result.error) return cb?.({ ok: false, error: result.error });
+    cb?.({ ok: true });
+    emitSeikai(room);
     kickSeikaiBots(room);
+  });
+
+  socket.on("refresh_topics", (_data, cb) => {
+    const sess = seikaiSessions.get(socket.id);
+    if (!sess) return cb?.({ ok: false, error: "未参加" });
+    const room = seikaiJinrou.getRoom(sess.roomCode);
+    if (!room) return cb?.({ ok: false, error: "ルームなし" });
+    const result = seikaiJinrou.refreshTopics(room, sess.playerId);
+    if (result.error) return cb?.({ ok: false, error: result.error });
+    cb?.({ ok: true });
+    emitSeikai(room);
   });
 
   socket.on("start_timer", (_data, cb) => {
@@ -1241,7 +1263,6 @@ io.of("/seikai-jinrou").on("connection", (socket) => {
     if (result.error) return cb?.({ ok: false, error: result.error });
     cb?.({ ok: true });
     emitSeikai(room);
-    kickSeikaiBots(room);
   });
 
   socket.on("back_to_lobby", (_data, cb) => {

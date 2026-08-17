@@ -202,13 +202,13 @@ function rulesBodyHtml() {
   return `
     <div class="panel howto">
       <div class="section-title">このゲームは何？</div>
-      <p class="sub" style="margin:0">1人だけ人狼、あとは市民。お題に一番沿った答え（ベストアンサー）を決め、そのあと人狼を当てる飲みゲー。</p>
+      <p class="sub" style="margin:0">1人だけ<strong>人狼</strong>、あとは市民。お題に一番沿った答え（<strong>ベストアンサー</strong>）を決め、そのあと人狼を当てる飲みゲー。</p>
     </div>
     <div class="panel howto">
       <div class="section-title">1ラウンドの流れ</div>
       <ol>
-        <li>役職は参加者から毎回ランダム。人狼だけ自分の役が分かる</li>
-        <li>お題が出る。主催者がタイマー開始 → 1分で1人1回答</li>
+        <li>主催者がお題を<strong>3つから選ぶ</strong>。役職は参加者から毎回ランダム。人狼だけ自分の役が分かる</li>
+        <li>お題が配られたら、主催者が<strong>タイマー開始</strong> → 1分で1人1回答</li>
         <li>人狼はベストアンサーになってはいけない</li>
         <li>答えが全員バラバラなら、投票でベストアンサーを決める</li>
         <li>同じ答えの被りがあるときは、主催者がその回答をベストアンサーにする</li>
@@ -248,11 +248,8 @@ function renderRules() {
       ${partyBackHtml()}
       <button type="button" class="linkish" id="rules-back">← 戻る</button>
     </div>
-    <div class="brand">
-      <div class="app-name">飲みゲーパーティー</div>
-      <h1>遊び方</h1>
-      <p class="sub">朝までそれ正解人狼</p>
-    </div>
+    <h1>遊び方</h1>
+    <p class="sub">朝までそれ正解人狼</p>
     ${rulesBodyHtml()}
     <button type="button" class="btn ghost" id="rules-back-bottom">戻る</button>`;
 }
@@ -260,11 +257,8 @@ function renderRules() {
 function renderHome() {
   return `
     <p>${partyBackHtml()}</p>
-    <div class="brand">
-      <div class="app-name">飲みゲーパーティー</div>
-      <h1>朝までそれ正解人狼</h1>
-      <p class="sub">人狼はベストアンサーになるな。お題に一番沿った答えと人狼を当てる。</p>
-    </div>
+    <h1>朝までそれ正解人狼</h1>
+    <p class="sub">人狼はベストアンサーになるな。お題に一番沿った答えと人狼を当てる。</p>
     <p style="margin:0 0 12px"><button type="button" class="linkish" id="open-rules">📖 遊び方</button></p>
     <div class="panel">
       <label>なまえ</label>
@@ -285,10 +279,7 @@ function renderHome() {
 function renderJoining() {
   return `
     <p>${partyBackHtml()}</p>
-    <div class="brand">
-      <div class="app-name">飲みゲーパーティー</div>
-      <h1>朝までそれ正解人狼</h1>
-    </div>
+    <h1>朝までそれ正解人狼</h1>
     <p class="wait">ゲームに入っています…</p>`;
 }
 
@@ -296,17 +287,17 @@ function renderLobby() {
   const s = ui.state;
   const isHost = s.you?.isHost;
   return `
-    <p>${partyBackHtml()}</p>
-    <div class="brand">
-      <div class="app-name">飲みゲーパーティー</div>
-      <h1>朝までそれ正解人狼</h1>
+    <h1>朝までそれ正解人狼</h1>
+    <div class="lobby-actions">
+      ${
+        isHost
+          ? `<button class="btn" id="btn-start" ${s.players.length < 3 || ui.busy ? "disabled" : ""}>ゲーム開始（3人〜）</button>
+             <button class="btn ghost" id="btn-party" ${ui.busy ? "disabled" : ""}>パーティーに戻る</button>`
+          : `<p class="wait">主催者の開始待ち…</p>
+             ${hasPartySession() ? `<p class="sub" style="margin:0;text-align:center">主催者がパーティーに戻すまで待ってね</p>` : ""}`
+      }
+      ${ui.error ? `<div class="error">${escapeHtml(ui.error)}</div>` : ""}
     </div>
-    ${
-      isHost
-        ? `<button class="btn" id="btn-start" ${s.players.length < 3 || ui.busy ? "disabled" : ""}>ゲーム開始（3人〜）</button>`
-        : `<p class="wait">主催者の開始待ち…</p>`
-    }
-    ${ui.error ? `<div class="error">${escapeHtml(ui.error)}</div>` : ""}
     ${rulesBodyHtml()}`;
 }
 
@@ -321,7 +312,42 @@ function roleHtml(s) {
 }
 
 function topicHtml(s) {
-  return `<div class="topic">${escapeHtml(s.topic?.text || "お題準備中")}</div>`;
+  if (!s.topic?.text) return "";
+  return `<div class="topic">${escapeHtml(s.topic.text)}</div>`;
+}
+
+function pickCardHtml({ id, avatar, name, answer, attr = "data-vote", selected = false }) {
+  return `<button type="button" class="pick-card ${selected ? "on" : ""}" ${attr}="${id}">
+    <span class="pick-av">${avatar}</span>
+    <span class="pick-name">${escapeHtml(name)}</span>
+    <span class="pick-ans">${escapeHtml(answer || "—")}</span>
+  </button>`;
+}
+
+function renderPickTopic() {
+  const s = ui.state;
+  const isHost = s.you?.isHost;
+  return `
+    ${screenHeadHtml()}
+    <div class="meta-bar"><span class="pill">ラウンド ${s.round}</span><span>お題選び</span></div>
+    <div class="panel">
+      <div class="section-title">お題を選ぶ</div>
+      ${
+        isHost
+          ? `<p class="host-tip">3つから1つ選ぶと、みんなにお題が配られるよ</p>
+             <div class="topic-choices">
+               ${(s.topicChoices || [])
+                 .map(
+                   (t) =>
+                     `<button type="button" class="topic-choice" data-topic="${t.id}" ${ui.busy ? "disabled" : ""}>${escapeHtml(t.text)}</button>`
+                 )
+                 .join("")}
+             </div>
+             <button class="btn ghost" id="btn-refresh-topics" ${ui.busy ? "disabled" : ""}>お題を入れ替える</button>
+             ${ui.error ? `<div class="error">${escapeHtml(ui.error)}</div>` : ""}`
+          : `<p class="wait">主催者がお題を選んでいます…</p>`
+      }
+    </div>`;
 }
 
 function renderAnswering() {
@@ -422,7 +448,12 @@ function renderVoteBa() {
                .filter((p) => p.connected)
                .map((p) => {
                  const g = (s.groups || []).find((x) => x.members.some((m) => m.id === p.id));
-                 return `<button type="button" data-vote="${p.id}">${p.avatar}<br/>${escapeHtml(p.name)}<small>${escapeHtml(g?.label || "")}</small></button>`;
+                 return pickCardHtml({
+                   id: p.id,
+                   avatar: p.avatar,
+                   name: p.name,
+                   answer: g?.label || "",
+                 });
                })
                .join("")}</div>`
       }
@@ -453,9 +484,15 @@ function renderVoteWolf() {
     body = s.you?.isHost
       ? `<p class="host-tip">まだ同数。話し合ってから、追放する人を選んでボタンを押してね<br/>${escapeHtml(tiedNames)}</p>
          <div class="pick-grid">${(s.wolfCandidates || [])
-           .map(
-             (p) =>
-               `<button type="button" class="${ui.selectedExileId === p.id ? "on" : ""}" data-exile="${p.id}">${p.avatar}<br/>${escapeHtml(p.name)}<small>${escapeHtml(p.answer)}</small></button>`
+           .map((p) =>
+             pickCardHtml({
+               id: p.id,
+               avatar: p.avatar,
+               name: p.name,
+               answer: p.answer,
+               attr: "data-exile",
+               selected: ui.selectedExileId === p.id,
+             })
            )
            .join("")}</div>
          <button class="btn danger" id="btn-exile" ${ui.busy || !ui.selectedExileId ? "disabled" : ""}>この人を追放する</button>`
@@ -467,17 +504,25 @@ function renderVoteWolf() {
   } else if (stage === "runoff") {
     body = `<p class="host-tip">同数トップ: ${escapeHtml(tiedNames)}<br/>ここに入れてない人だけ、この中から再投票</p>
       <div class="pick-grid">${(s.wolfCandidates || [])
-        .map(
-          (p) =>
-            `<button type="button" data-vote="${p.id}">${p.avatar}<br/>${escapeHtml(p.name)}<small>${escapeHtml(p.answer)}</small></button>`
+        .map((p) =>
+          pickCardHtml({
+            id: p.id,
+            avatar: p.avatar,
+            name: p.name,
+            answer: p.answer,
+          })
         )
         .join("")}</div>`;
   } else {
     body = `<p class="host-tip">ベストアンサー: 「${escapeHtml(s.bestAnswer?.label || "")}」${ba ? `（${escapeHtml(ba)}）` : ""}<br/>選ばれなかった人の中から人狼を指名</p>
       <div class="pick-grid">${(s.wolfCandidates || [])
-        .map(
-          (p) =>
-            `<button type="button" data-vote="${p.id}">${p.avatar}<br/>${escapeHtml(p.name)}<small>${escapeHtml(p.answer)}</small></button>`
+        .map((p) =>
+          pickCardHtml({
+            id: p.id,
+            avatar: p.avatar,
+            name: p.name,
+            answer: p.answer,
+          })
         )
         .join("")}</div>`;
   }
@@ -535,6 +580,7 @@ function render() {
   else if (ui.view === "joining") html = renderJoining();
   else if (ui.view === "home" || !ui.state) html = renderHome();
   else if (ui.state.phase === "lobby") html = renderLobby();
+  else if (ui.state.phase === "pick_topic") html = renderPickTopic();
   else if (ui.state.phase === "answering") html = renderAnswering();
   else if (ui.state.phase === "review") html = renderReview();
   else if (ui.state.phase === "vote_ba") html = renderVoteBa();
@@ -601,6 +647,10 @@ function bindEvents() {
   });
   document.getElementById("btn-start")?.addEventListener("click", () => emit("start_game"));
   document.getElementById("btn-party")?.addEventListener("click", () => goBackToParty());
+  document.querySelectorAll("[data-topic]").forEach((btn) => {
+    btn.addEventListener("click", () => emit("pick_topic", { topicId: btn.dataset.topic }));
+  });
+  document.getElementById("btn-refresh-topics")?.addEventListener("click", () => emit("refresh_topics"));
 
   const answerEl = document.getElementById("answer");
   if (answerEl) {

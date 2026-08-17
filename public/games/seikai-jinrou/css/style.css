@@ -18,10 +18,9 @@ body {
   font-family: var(--font);
   color: var(--text);
   background:
-    radial-gradient(ellipse 110% 70% at 8% -8%, #5a3488 0%, transparent 52%),
-    radial-gradient(ellipse 80% 60% at 100% 0%, #c94b62 0%, transparent 42%),
-    radial-gradient(ellipse 70% 50% at 70% 110%, #1c3d5a 0%, transparent 50%),
-    linear-gradient(165deg, #140c24, #24143f 48%, #1a1230);
+    radial-gradient(ellipse 120% 80% at 10% -10%, #6b3fa0 0%, transparent 55%),
+    radial-gradient(ellipse 90% 70% at 100% 0%, #e85d75 0%, transparent 45%),
+    linear-gradient(165deg, #1a0f2e, #2d1b4e 45%, #231340);
   background-attachment: fixed;
 }
 
@@ -41,7 +40,7 @@ body {
 a.back, button.linkish {
   background: none;
   border: none;
-  color: var(--accent2);
+  color: var(--muted);
   font: inherit;
   font-weight: 800;
   font-size: 0.85rem;
@@ -49,29 +48,22 @@ a.back, button.linkish {
   cursor: pointer;
   text-decoration: none;
 }
+a.back:hover, button.linkish:hover { color: var(--accent2); }
+
 h1 {
-  margin: 8px 0 4px;
+  margin: 10px 0 4px;
   font-size: 1.7rem;
-  background: linear-gradient(120deg, var(--accent), #fff, var(--accent2));
-  -webkit-background-clip: text;
-  background-clip: text;
-  color: transparent;
-}
-.brand {
-  text-align: center;
-  margin: 8px 0 18px;
-}
-.brand .app-name {
-  font-size: 0.82rem;
-  font-weight: 800;
-  letter-spacing: 0.14em;
-  color: var(--accent2);
+  color: var(--accent);
 }
 .sub {
   color: var(--muted);
   font-weight: 700;
   line-height: 1.45;
-  margin: 8px 0 0;
+  margin: 8px 0 18px;
+}
+
+.lobby-actions {
+  margin: 12px 0 16px;
 }
 
 .panel {
@@ -167,7 +159,7 @@ input[type="text"] {
 
 .topic {
   text-align: center;
-  font-size: 1.35rem;
+  font-size: 1.25rem;
   font-weight: 800;
   line-height: 1.4;
   margin: 0 0 14px;
@@ -175,6 +167,30 @@ input[type="text"] {
   background: rgba(0, 0, 0, 0.42);
   border-radius: 16px;
 }
+
+.topic-choices {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin: 12px 0;
+}
+.topic-choice {
+  text-align: left;
+  border: 2px solid var(--line);
+  background: rgba(0, 0, 0, 0.28);
+  color: var(--text);
+  border-radius: 14px;
+  padding: 14px 16px;
+  font: inherit;
+  font-weight: 800;
+  line-height: 1.4;
+  cursor: pointer;
+}
+.topic-choice:hover:not(:disabled) {
+  border-color: var(--accent);
+  background: rgba(255, 216, 77, 0.12);
+}
+.topic-choice:disabled { opacity: 0.45; cursor: not-allowed; }
 
 .role {
   text-align: center;
@@ -227,6 +243,7 @@ input[type="text"] {
   font-weight: 700;
   text-align: center;
   margin: 4px 0 10px;
+  line-height: 1.45;
 }
 
 .groups { display: flex; flex-direction: column; gap: 10px; }
@@ -241,8 +258,10 @@ input[type="text"] {
 .group-card.dup { border-color: rgba(255, 216, 77, 0.55); }
 .group-card .glabel {
   font-weight: 800;
-  font-size: 1.05rem;
+  font-size: 1.15rem;
   margin-bottom: 8px;
+  color: var(--accent);
+  line-height: 1.35;
 }
 .members { display: flex; flex-wrap: wrap; gap: 6px; }
 .member {
@@ -254,6 +273,7 @@ input[type="text"] {
   padding: 4px 10px 4px 6px;
   font-size: 0.82rem;
   font-weight: 700;
+  color: var(--muted);
 }
 .member .split {
   border: none;
@@ -268,22 +288,46 @@ input[type="text"] {
 .pick-grid {
   display: grid;
   grid-template-columns: repeat(2, 1fr);
-  gap: 8px;
+  gap: 10px;
   margin: 12px 0;
 }
-.pick-grid button {
+.pick-grid button,
+.pick-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
   border: 2px solid var(--line);
-  background: rgba(0, 0, 0, 0.25);
+  background: rgba(0, 0, 0, 0.28);
   color: var(--text);
   border-radius: 14px;
-  padding: 14px 8px;
+  padding: 14px 10px;
   font: inherit;
-  font-weight: 800;
   cursor: pointer;
+  min-height: 108px;
 }
-.pick-grid button.on {
+.pick-grid button.on,
+.pick-card.on {
   border-color: var(--accent);
   background: rgba(255, 216, 77, 0.16);
+}
+.pick-av {
+  font-size: 1.45rem;
+  line-height: 1;
+}
+.pick-name {
+  font-size: 0.75rem;
+  font-weight: 700;
+  color: var(--muted);
+  line-height: 1.2;
+}
+.pick-ans {
+  margin-top: 4px;
+  font-size: 1.12rem;
+  font-weight: 800;
+  color: var(--accent);
+  line-height: 1.3;
+  word-break: break-word;
 }
 
 .result-banner {
@@ -338,9 +382,10 @@ input[type="text"] {
   font-weight: 700;
   font-size: 0.9rem;
 }
+.howto strong { color: var(--accent); }
 .section-title {
   color: var(--accent);
-  font-size: 0.85rem;
+  font-size: 0.95rem;
   font-weight: 800;
   margin: 0 0 8px;
 }

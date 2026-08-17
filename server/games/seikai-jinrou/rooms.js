@@ -141,6 +141,7 @@ function blankRoomFields() {
     phase: "lobby",
     round: 0,
     topic: null,
+    topicChoices: [],
     usedTopicIds: [],
     wolfId: null,
     answers: new Map(),
@@ -338,14 +339,23 @@ export function normalizeAnswer(text) {
     .replace(/\s+/g, "");
 }
 
-function pickTopic(room) {
+function shuffleTopics(list) {
+  const a = [...list];
+  for (let i = a.length - 1; i > 0; i--) {
+    const j = (Math.random() * (i + 1)) | 0;
+    [a[i], a[j]] = [a[j], a[i]];
+  }
+  return a;
+}
+
+function refillTopicChoices(room) {
   const used = new Set(room.usedTopicIds || []);
   let pool = TOPICS.filter((t) => !used.has(t.id));
-  if (!pool.length) {
+  if (pool.length < 3) {
     room.usedTopicIds = [];
     pool = TOPICS;
   }
-  return pool[(Math.random() * pool.length) | 0];
+  room.topicChoices = shuffleTopics(pool).slice(0, 3);
 }
 
 function rebuildGroups(room) {
@@ -369,11 +379,36 @@ function pickRandomWolf(room) {
   room.wolfId = ids[(Math.random() * ids.length) | 0];
 }
 
-function beginRound(room) {
-  room.phase = "answering";
+function resetRoundFields(room) {
+  room.topic = null;
+  room.topicChoices = [];
+  room.wolfId = null;
+  room.answers = new Map();
+  room.groups = [];
+  room.baVotes = new Map();
+  room.wolfVotes = new Map();
+  room.wolfVoteStage = "first";
+  room.wolfTiedIds = [];
+  room.bestAnswer = null;
+  room.accusedId = null;
+  room.drinks = [];
+  room.resultKind = "";
+  room.timerStartedAt = null;
+  room.timerEndsAt = null;
+}
+
+function beginPickTopic(room) {
+  room.phase = "pick_topic";
   room.round = (room.round || 0) + 1;
-  room.topic = pickTopic(room);
-  room.usedTopicIds = [...(room.usedTopicIds || []), room.topic.id];
+  resetRoundFields(room);
+  refillTopicChoices(room);
+}
+
+function beginAnswering(room, topic) {
+  room.phase = "answering";
+  room.topic = topic;
+  room.usedTopicIds = [...(room.usedTopicIds || []), topic.id];
+  room.topicChoices = [];
   pickRandomWolf(room);
   room.answers = new Map();
   room.groups = [];
@@ -397,7 +432,23 @@ export function startGame(room, playerId) {
     for (const id of room.players.keys()) room.drinkTotals.set(id, 0);
   }
   room.usedTopicIds = [];
-  beginRound(room);
+  beginPickTopic(room);
+  return { ok: true };
+}
+
+export function pickTopic(room, playerId, topicId) {
+  if (playerId !== room.hostId) return { error: "主催者のみ" };
+  if (room.phase !== "pick_topic") return { error: "いまはお題選びではありません" };
+  const topic = (room.topicChoices || []).find((t) => t.id === topicId);
+  if (!topic) return { error: "そのお題は選べません" };
+  beginAnswering(room, topic);
+  return { ok: true };
+}
+
+export function refreshTopics(room, playerId) {
+  if (playerId !== room.hostId) return { error: "主催者のみ" };
+  if (room.phase !== "pick_topic") return { error: "いまはお題選びではありません" };
+  refillTopicChoices(room);
   return { ok: true };
 }
 
@@ -753,7 +804,7 @@ export function listBotsNeedingVote(room) {
 export function nextRound(room, playerId) {
   if (playerId !== room.hostId) return { error: "主催者のみ" };
   if (room.phase !== "result") return { error: "まだ結果中です" };
-  beginRound(room);
+  beginPickTopic(room);
   return { ok: true };
 }
 
@@ -808,11 +859,12 @@ export function publicState(room, viewerId) {
   }));
 
   const me = room.players.get(viewerId);
-  const inPlay = room.phase !== "lobby";
+  const inPlay = room.phase !== "lobby" && room.phase !== "pick_topic";
   const revealed = room.phase === "result";
   const showAnswers = ["review", "vote_ba", "vote_wolf", "result"].includes(
     room.phase
   );
+  const isHost = me?.id === room.hostId;
 
   const baIds = new Set(room.bestAnswer?.playerIds || []);
   const voteMap =
@@ -838,6 +890,10 @@ export function publicState(room, viewerId) {
     phase: room.phase,
     round: room.round,
     topic: inPlay && room.topic ? { id: room.topic.id, text: room.topic.text } : null,
+    topicChoices:
+      room.phase === "pick_topic" && isHost
+        ? (room.topicChoices || []).map((t) => ({ id: t.id, text: t.text }))
+        : [],
     players,
     you: me
       ? {
@@ -846,7 +902,12 @@ export function publicState(room, viewerId) {
           avatar: me.avatar,
           isHost: me.id === room.hostId,
           isBot: !!me.isBot,
-          role: inPlay ? (me.id === room.wolfId ? "wolf" : "citizen") : null,
+          role:
+            inPlay && room.wolfId
+              ? me.id === room.wolfId
+                ? "wolf"
+                : "citizen"
+              : null,
         }
       : null,
     answeredCount: room.answers.size,
