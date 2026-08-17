@@ -273,6 +273,44 @@ input[type="text"] {
   border-radius: 14px;
 }
 
+.vote-tally {
+  margin: 14px 0;
+  padding: 12px;
+  background: rgba(0, 0, 0, 0.22);
+  border-radius: 14px;
+}
+.vote-tally .section-title { margin-bottom: 10px; }
+.tally-row {
+  padding: 10px 0;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+}
+.tally-row:first-of-type { border-top: none; padding-top: 0; }
+.tally-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 10px;
+  font-weight: 800;
+}
+.tally-who { line-height: 1.35; }
+.tally-ans {
+  display: inline;
+  margin-left: 4px;
+  color: var(--accent);
+}
+.tally-count {
+  flex-shrink: 0;
+  color: var(--accent2);
+  font-size: 1.05rem;
+}
+.tally-voters {
+  margin-top: 4px;
+  font-size: 0.82rem;
+  font-weight: 700;
+  color: var(--muted);
+  line-height: 1.4;
+}
+
 .groups { display: flex; flex-direction: column; gap: 10px; }
 .group-card {
   background: rgba(0, 0, 0, 0.28);

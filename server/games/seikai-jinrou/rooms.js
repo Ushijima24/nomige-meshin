@@ -644,6 +644,33 @@ function tally(votes) {
   return { max, winners, map };
 }
 
+function publicVoteTally(room, votes) {
+  if (!votes?.size) return [];
+  const byTarget = new Map();
+  for (const [voterId, targetId] of votes) {
+    if (!byTarget.has(targetId)) byTarget.set(targetId, []);
+    byTarget.get(targetId).push(voterId);
+  }
+  return [...byTarget.entries()]
+    .map(([targetId, voterIds]) => {
+      const t = room.players.get(targetId);
+      return {
+        target: {
+          id: targetId,
+          name: t?.name || "?",
+          avatar: t?.avatar || "❓",
+          answer: room.answers.get(targetId) || "",
+        },
+        votes: voterIds.length,
+        voters: voterIds.map((id) => {
+          const p = room.players.get(id);
+          return { id, name: p?.name || "?", avatar: p?.avatar || "❓" };
+        }),
+      };
+    })
+    .sort((a, b) => b.votes - a.votes || a.target.name.localeCompare(b.target.name, "ja"));
+}
+
 function finalizeBaVotes(room) {
   const { winners } = tally(room.baVotes);
   if (!winners.length) {
@@ -947,6 +974,9 @@ export function publicState(room, viewerId) {
         : 0,
     voteCount: voteMap ? voteMap.size : 0,
     voteExpected: connectedPlayers(room).length,
+    baVoteTally: revealed ? publicVoteTally(room, room.baVotes) : null,
+    baVoteByHost: revealed ? !!(room.bestAnswer && !(room.baVotes?.size)) : false,
+    wolfVoteTally: revealed ? publicVoteTally(room, room.wolfVotes) : null,
     drinks: revealed ? publicDrinks(room) : null,
     drinkBoard,
     resultKind: revealed ? room.resultKind : "",

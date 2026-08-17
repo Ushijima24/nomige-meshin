@@ -538,6 +538,40 @@ function renderVoteWolf() {
     </div>`;
 }
 
+function voteTallyHtml(title, rows, { hostPick = false, skipped = false } = {}) {
+  if (skipped) {
+    return `<div class="vote-tally">
+      <div class="section-title">${title}</div>
+      <p class="sub" style="margin:0">投票なし</p>
+    </div>`;
+  }
+  if (hostPick) {
+    return `<div class="vote-tally">
+      <div class="section-title">${title}</div>
+      <p class="sub" style="margin:0">主催者が被りから選定（投票なし）</p>
+    </div>`;
+  }
+  if (!rows?.length) return "";
+  return `<div class="vote-tally">
+    <div class="section-title">${title}</div>
+    ${rows
+      .map(
+        (r) => `<div class="tally-row">
+        <div class="tally-head">
+          <span class="tally-who">${r.target.avatar} ${escapeHtml(r.target.name)}${
+            r.target.answer ? `<span class="tally-ans">「${escapeHtml(r.target.answer)}」</span>` : ""
+          }</span>
+          <span class="tally-count">${r.votes}票</span>
+        </div>
+        <div class="tally-voters">${r.voters
+          .map((v) => `${v.avatar}${escapeHtml(v.name)}`)
+          .join("、")}</div>
+      </div>`
+      )
+      .join("")}
+  </div>`;
+}
+
 function renderResult() {
   const s = ui.state;
   let banner = "";
@@ -560,6 +594,12 @@ function renderResult() {
         )
         .join("")}</div>`
     : `<p class="wait">飲む人なし</p>`;
+  const baTally = voteTallyHtml("ベストアンサー投票", s.baVoteTally, {
+    hostPick: !!s.baVoteByHost,
+  });
+  const wolfTally = voteTallyHtml("人狼投票", s.wolfVoteTally, {
+    skipped: s.resultKind === "wolf_ba" && !(s.wolfVoteTally || []).length,
+  });
   return `
     ${screenHeadHtml()}
     <div class="meta-bar"><span class="pill">結果</span><span>ラウンド ${s.round}</span></div>
@@ -569,6 +609,8 @@ function renderResult() {
       <p class="sub" style="margin:0 0 8px">人狼は ${s.wolf?.avatar || ""} ${escapeHtml(s.wolf?.name || "?")}</p>
       <p class="sub" style="margin:0 0 8px">ベストアンサー「${escapeHtml(s.bestAnswer?.label || "")}」</p>
       ${s.accused ? `<p class="sub" style="margin:0 0 12px">人狼指名 ${s.accused.avatar} ${escapeHtml(s.accused.name)}</p>` : ""}
+      ${baTally}
+      ${wolfTally}
       ${drinks}
       ${drinkBoardHtml(s.drinkBoard)}
       ${ui.error ? `<div class="error">${escapeHtml(ui.error)}</div>` : ""}
