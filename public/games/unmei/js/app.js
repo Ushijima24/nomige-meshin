@@ -212,6 +212,23 @@ function rulesBodyHtml() {
     </div>`;
 }
 
+function lobbyHowtoHtml(mode) {
+  const love = mode === "love";
+  return `
+    <div class="panel howto">
+      <div class="section-title">このゲームは何？</div>
+      <p class="sub" style="margin:0">「一緒に〇〇するなら誰？」を指名して、両思いなら成立。最後まで残った1〜2人が飲む。開始は<strong>5人以上</strong>（推奨 6〜10人）。</p>
+    </div>
+    <div class="panel howto">
+      <div class="section-title">${love ? "ラブモード" : "バラエティモード"}</div>
+      <p class="sub" style="margin:0">${
+        love
+          ? "男／女に分かれて座り、相手の席だけ指名できる。"
+          : "自分以外なら誰でも指名。円形に座る。"
+      }</p>
+    </div>`;
+}
+
 function drinkBoardHtml(board) {
   if (!board?.length) return "";
   return `<div class="drink-board"><div class="drink-board-title">🍺 累計罰杯</div>${board
@@ -331,11 +348,6 @@ function renderLobby() {
           </div>`;
         })
         .join("")}</div>
-      ${
-        isHost
-          ? `<button class="btn ghost" data-act="add-bot" ${ui.busy || s.players.length >= 10 ? "disabled" : ""}>ダミーを追加</button>`
-          : ""
-      }
     </div>`
         : ""
     }
@@ -347,7 +359,7 @@ function renderLobby() {
       }
       ${ui.error ? `<div class="error">${escapeHtml(ui.error)}</div>` : ""}
     </div>
-    ${rulesBodyHtml()}`;
+    ${lobbyHowtoHtml(s.mode)}`;
 }
 
 function renderPickTopic() {
@@ -381,7 +393,6 @@ function renderPickTopic() {
 
 function renderChoosing() {
   const s = ui.state;
-  const isHost = s.you?.isHost;
   const canPick = s.you?.active && s.targets?.length;
   return `
     ${screenHeadHtml()}
@@ -411,16 +422,6 @@ function renderChoosing() {
           ? s.waitingPick.map((p) => `${p.avatar} ${escapeHtml(p.name)}`).join("、")
           : "全員指名済み。開票へ…"
       }</p>
-      ${
-        isHost && (s.waitingPick || []).length
-          ? s.waitingPick
-              .map(
-                (p) =>
-                  `<button class="btn ghost" data-act="pick-for" data-id="${p.id}" ${ui.busy ? "disabled" : ""}>${escapeHtml(p.name)} を代行指名</button>`
-              )
-              .join("")
-          : ""
-      }
       ${ui.error ? `<div class="error">${escapeHtml(ui.error)}</div>` : ""}
     </div>`;
 }
@@ -455,14 +456,14 @@ function seatOf(id) {
 
 function animateDots(svg, x1, y1, x2, y2, color) {
   const dist = Math.hypot(x2 - x1, y2 - y1);
-  const n = Math.max(8, Math.floor(dist / 2.6));
-  const delay = Math.min(42, 520 / n);
+  const n = Math.max(10, Math.floor(dist / 2.4));
+  const delay = Math.max(70, 2200 / n);
   for (let i = 0; i <= n; i++) {
     const t = i / n;
     const c = svgEl("circle", {
       cx: x1 + (x2 - x1) * t,
       cy: y1 + (y2 - y1) * t,
-      r: i === n ? 1.6 : 1.15,
+      r: i === n ? 1.35 : 1.05,
       fill: color,
       opacity: "0",
     });
@@ -476,7 +477,7 @@ function animateDots(svg, x1, y1, x2, y2, color) {
 
 function addHeart(svg, x, y, color) {
   const g = svgEl("g", {
-    transform: `translate(${x} ${y}) scale(0.055) translate(-256 -256)`,
+    transform: `translate(${x} ${y}) scale(0.022) translate(-256 -256)`,
   });
   const path = svgEl("path", {
     d: "M256 448l-35-31C86 307 32 259 32 192 32 124 85 80 148 80c39 0 77 18 108 47 31-29 69-47 108-47 63 0 116 44 116 112 0 67-54 115-189 225l-35 31z",
@@ -484,6 +485,25 @@ function addHeart(svg, x, y, color) {
   });
   g.appendChild(path);
   svg.appendChild(g);
+}
+
+function addArrow(svg, x1, y1, x2, y2, color) {
+  const angle = Math.atan2(y2 - y1, x2 - x1);
+  const deg = (angle * 180) / Math.PI;
+  const g = svgEl("g", {
+    transform: `translate(${x2} ${y2}) rotate(${deg})`,
+  });
+  const path = svgEl("path", {
+    d: "M 0 0 L -4.2 -2.4 L -2.6 0 L -4.2 2.4 Z",
+    fill: color,
+  });
+  g.appendChild(path);
+  svg.appendChild(g);
+}
+
+function addLineEnd(svg, x1, y1, x2, y2, color) {
+  if (ui.state?.mode === "love") addArrow(svg, x1, y1, x2, y2, color);
+  else addHeart(svg, x2, y2, color);
 }
 
 function stampAt(midX, midY, ok) {
@@ -512,6 +532,7 @@ function sparkles() {
 }
 
 function showCenterHeart() {
+  if (ui.state?.mode === "love") return;
   const fx = document.getElementById("fx");
   if (!fx || fx.querySelector(".center-heart")) return;
   const h = document.createElement("div");
@@ -541,7 +562,7 @@ function drawPickLineInstant(fromId, toId, mutual) {
       })
     );
   }
-  addHeart(svg, b.portX, b.portY, mutual ? "#ff4d88" : "#ff6b7a");
+  addLineEnd(svg, a.portX, a.portY, b.portX, b.portY, mutual ? "#ff4d88" : "#ff6b7a");
   stampAt((a.portX + b.portX) / 2, (a.portY + b.portY) / 2, mutual);
   if (mutual) showCenterHeart();
 }
@@ -555,7 +576,7 @@ function drawPickLine(fromId, toId, mutual, { stamp = true, heartCenter = true }
   const color = lineColor(fromId);
   const ms = animateDots(svg, a.portX, a.portY, b.portX, b.portY, color);
   setTimeout(() => {
-    addHeart(svg, b.portX, b.portY, mutual ? "#ff4d88" : "#ff6b7a");
+    addLineEnd(svg, a.portX, a.portY, b.portX, b.portY, mutual ? "#ff4d88" : "#ff6b7a");
     if (stamp) {
       stampAt((a.portX + b.portX) / 2, (a.portY + b.portY) / 2, mutual);
     }
@@ -645,7 +666,7 @@ function syncRevealLines(s) {
           stamp: true,
           heartCenter: ev.mutual,
         });
-      }, i * 380);
+      }, i * 550);
     });
     return;
   }

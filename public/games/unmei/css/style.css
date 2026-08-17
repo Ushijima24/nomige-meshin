@@ -81,6 +81,15 @@ body.love h1 { color: #ffd0e0; }
   margin-bottom: 12px;
   box-shadow: 0 12px 40px rgba(0, 0, 0, 0.3);
 }
+.lobby-actions {
+  margin: 8px 0 28px;
+}
+.lobby-actions .btn {
+  margin-top: 0;
+}
+.lobby-actions + .panel {
+  margin-top: 8px;
+}
 
 label {
   display: block;
@@ -434,10 +443,11 @@ input[type="text"] {
   left: 50%;
   top: 50%;
   transform: translate(-50%, -50%);
-  font-size: 3.4rem;
+  font-size: 1.6rem;
   z-index: 6;
   animation: heartIn 0.5s ease-out;
-  filter: drop-shadow(0 0 12px #ff4d88);
+  filter: drop-shadow(0 0 8px #ff4d88);
+  pointer-events: none;
 }
 @keyframes heartIn {
   0% { transform: translate(-50%, -50%) scale(0.2); opacity: 0; }
