@@ -3,7 +3,7 @@ import path from "path";
 import { fileURLToPath } from "url";
 import { aliasesOf, normalize } from "./match.js";
 import { warmupReadings, wikiKanaFromExtract, readingFits } from "./readings.js";
-import { resolveOfficialNames } from "./wiki.js";
+import { resolveOfficialNames, wikiNicknamesForNames } from "./wiki.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const seedPath = path.join(__dirname, "catalog.json");
@@ -19,8 +19,9 @@ try {
   catalog = [];
 }
 
-const rankingCache = new Map(); // slug -> { items, title, fetchedAt }
+const rankingCache = new Map(); // slug -> { items, title, fetchedAt, ver }
 const CACHE_MS = 6 * 60 * 60 * 1000;
+const CACHE_VER = 2;
 
 export function listCatalog() {
   return catalog;
@@ -153,18 +154,36 @@ async function enrichWikiReadings(items) {
       }
     })
   );
-  for (const it of items) {
-    const extra = kanaByTitle.get(it.name);
-    if (!extra?.length) continue;
-    const aliases = new Set(it.aliases || []);
-    extra.forEach((k) => aliases.add(k));
-    it.aliases = [...aliases];
+  try {
+    const nickMap = await wikiNicknamesForNames(
+      items.map((it) => it.name).slice(0, 40)
+    );
+    for (const it of items) {
+      const extra = [
+        ...(kanaByTitle.get(it.name) || []),
+        ...(nickMap.get(it.name) || []),
+      ];
+      if (!extra.length) continue;
+      const aliases = new Set(it.aliases || []);
+      extra.forEach((k) => aliases.add(k));
+      it.aliases = [...aliases];
+    }
+  } catch {
+    for (const it of items) {
+      const extra = kanaByTitle.get(it.name);
+      if (!extra?.length) continue;
+      const aliases = new Set(it.aliases || []);
+      extra.forEach((k) => aliases.add(k));
+      it.aliases = [...aliases];
+    }
   }
 }
 
 export async function fetchRanking(slug) {
   const cached = rankingCache.get(slug);
-  if (cached && Date.now() - cached.fetchedAt < CACHE_MS) return cached;
+  if (cached && cached.ver === CACHE_VER && Date.now() - cached.fetchedAt < CACHE_MS) {
+    return cached;
+  }
 
   const entry = getCatalogEntry(slug);
   const items = [];
@@ -188,7 +207,7 @@ export async function fetchRanking(slug) {
   items.sort((a, b) => a.rank - b.rank);
   await warmupReadings();
   await enrichWikiReadings(items);
-  const data = { slug, title, items, fetchedAt: Date.now() };
+  const data = { slug, title, items, fetchedAt: Date.now(), ver: CACHE_VER };
   rankingCache.set(slug, data);
   return data;
 }

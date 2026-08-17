@@ -5,7 +5,7 @@ import {
   getCatalogEntry,
 } from "./catalog.js";
 import { matchItems, suggestCandidates, normalize } from "./match.js";
-import { resolveOfficialNames } from "./wiki.js";
+import { resolveOfficialNames, wikiNicknamesForNames } from "./wiki.js";
 
 const AVATARS = ["🦊", "🐻", "🐱", "🐸", "🐼", "🐷", "🦁", "🐨", "🐵", "🐰", "🐯", "🐮", "🐶", "🐺", "🦝", "🐔", "🐧", "🦄", "🐙", "🦖", "👻", "🎃", "👽", "🤖"];
 const BOT_NAMES = [
@@ -529,7 +529,19 @@ async function matchPlayerAnswer(answer, items) {
   const local = matchItems(answer, items);
   if (local.auto) return local;
 
-  const official = await resolveOfficialNames(answer);
+  const [official, nickMap] = await Promise.all([
+    resolveOfficialNames(answer),
+    wikiNicknamesForNames((items || []).map((it) => it.name).slice(0, 40)),
+  ]);
+  const withNicks = (items || []).map((it) => ({
+    ...it,
+    aliases: [
+      ...new Set([...(it.aliases || []), ...(nickMap.get(it.name) || [])]),
+    ],
+  }));
+  const nickMatch = matchItems(answer, withNicks);
+  if (nickMatch.auto) return nickMatch;
+
   const autos = [];
   const extraCand = [];
   const seenAuto = new Set();
@@ -539,8 +551,8 @@ async function matchPlayerAnswer(answer, items) {
     autos.push(it);
   };
   for (const name of official) {
-    extraCand.push(...suggestCandidates(name, items, 8));
-    for (const it of items) {
+    extraCand.push(...suggestCandidates(name, withNicks, 8));
+    for (const it of withNicks) {
       const aliases = [it.name, ...(it.aliases || [])];
       if (aliases.some((a) => normalize(a) === normalize(name))) addAuto(it);
     }
@@ -556,9 +568,13 @@ async function matchPlayerAnswer(answer, items) {
     auto: null,
     candidates: mergeCandidates(
       extraCand,
-      [...(local.candidates || []), ...suggestCandidates(answer, items, 15)]
+      [
+        ...(nickMatch.candidates || []),
+        ...(local.candidates || []),
+        ...suggestCandidates(answer, withNicks, 15),
+      ]
     ),
-    confidence: autos.length > 1 ? "ambiguous" : local.confidence,
+    confidence: autos.length > 1 ? "ambiguous" : nickMatch.confidence || local.confidence,
   };
 }
 
