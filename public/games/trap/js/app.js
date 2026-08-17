@@ -11,6 +11,7 @@ const app = document.getElementById("app");
 const ui = {
   view: "home",
   rulesBack: "home",
+  rulesTab: "howto",
   name: localStorage.getItem("trap_name") || "",
   avatar: localStorage.getItem("trap_avatar") || AVATARS[0],
   joinCode: "",
@@ -308,8 +309,9 @@ function cardButton(
   </button>`;
 }
 
-function openRules(back = "home") {
+function openRules(back = "home", tab = "howto") {
   ui.rulesBack = back;
+  ui.rulesTab = tab === "cards" ? "cards" : "howto";
   ui.view = "rules";
   render();
 }
@@ -325,12 +327,24 @@ function catalogByRank() {
     .filter((g) => g.cards.length);
 }
 
-function renderRules() {
-  const rates = ui.catalog?.rates || { SSS: 1, S: 9, A: 20, B: 30, C: 40 };
-  const groups = catalogByRank();
+function renderRulesTabs() {
+  const tab = ui.rulesTab === "cards" ? "cards" : "howto";
+  return `<div class="rules-tabs" role="tablist">
+    <button type="button" class="rules-tab ${
+      tab === "howto" ? "on" : ""
+    }" data-rules-tab="howto" role="tab" aria-selected="${
+      tab === "howto"
+    }">遊び方</button>
+    <button type="button" class="rules-tab ${
+      tab === "cards" ? "on" : ""
+    }" data-rules-tab="cards" role="tab" aria-selected="${
+      tab === "cards"
+    }">カード一覧</button>
+  </div>`;
+}
+
+function renderHowtoTab() {
   return `
-    <button type="button" class="back linkish" id="rules-back">← 戻る</button>
-    <h1>遊び方</h1>
     <p class="sub">はじめてでもわかるトラップゲームの説明です。</p>
 
     <div class="panel howto">
@@ -367,7 +381,7 @@ function renderRules() {
         <li><strong>自分の番が続く系</strong> … 効果だけ発動して、酒は手元に残る</li>
         <li><strong>持ってるだけ系</strong> … 押せない。試合終了時などに発動（犯罪者・効果なし・自宅警備員）</li>
       </ul>
-      <p class="hint">カードには「名前」と「効果」が書いてあります。ランクが高いほどレアで強い傾向です。</p>
+      <p class="hint">個別の効果は「カード一覧」タブで見られます。ランクが高いほどレアで強い傾向です。</p>
     </div>
 
     <div class="panel howto">
@@ -381,7 +395,14 @@ function renderRules() {
         <li>主催者はロビーでメンバー削除、試合中に「試合を中止してロビーへ」ができる</li>
       </ul>
     </div>
+  `;
+}
 
+function renderCardsTab() {
+  const rates = ui.catalog?.rates || { SSS: 1, S: 9, A: 20, B: 30, C: 40 };
+  const groups = catalogByRank();
+  return `
+    <p class="sub">手札に出るカードと効果です。</p>
     <div class="panel">
       <div class="section-title">出現率</div>
       <div class="rates">
@@ -392,10 +413,8 @@ function renderRules() {
         <span class="rank C">C ${rates.C}%</span>
       </div>
     </div>
-
     <div class="panel">
-      <div class="section-title">カード一覧</div>
-      <p class="hint">実際に手札に出るカードと効果です。</p>
+      <div class="section-title">全カード</div>
       ${
         groups.length
           ? groups
@@ -420,6 +439,16 @@ function renderRules() {
           : `<p class="sub">カード情報を読み込み中…</p>`
       }
     </div>
+  `;
+}
+
+function renderRules() {
+  const tab = ui.rulesTab === "cards" ? "cards" : "howto";
+  return `
+    <button type="button" class="back linkish" id="rules-back">← 戻る</button>
+    <h1>${tab === "cards" ? "カード一覧" : "遊び方"}</h1>
+    ${renderRulesTabs()}
+    ${tab === "cards" ? renderCardsTab() : renderHowtoTab()}
     <button class="btn ghost" id="rules-back-bottom" style="margin-top:8px">戻る</button>
   `;
 }
@@ -429,7 +458,7 @@ function renderHome() {
     <a class="back" href="/">← ゲーム選択</a>
     <h1>トラップゲーム</h1>
     <p class="sub">お酒をたらい回し。カードでかわして、なすりつけろ。</p>
-    <button type="button" class="btn ghost" id="open-rules" style="margin-bottom:14px">📖 遊び方・カード一覧</button>
+    <button type="button" class="btn ghost" id="open-rules" style="margin-bottom:14px">📖 遊び方・カード</button>
     <div class="panel">
       <label>なまえ</label>
       <input type="text" id="name" maxlength="12" value="${escapeHtml(
@@ -459,7 +488,7 @@ function renderHome() {
         <li>渡せば次の人へ。負けを認めると飲む</li>
         <li>カードの効果で量が増えたり、無敵になったりする</li>
       </ul>
-      <p class="hint">くわしくは上の「遊び方・カード一覧」へ。</p>
+      <p class="hint">くわしくは上の「遊び方・カード」へ（タブで切り替え）。</p>
     </div>`;
 }
 
@@ -468,7 +497,7 @@ function renderLobby() {
   return `
     <a class="back" href="/">← ゲーム選択</a>
     <h1>トラップゲーム</h1>
-    <button type="button" class="btn ghost" id="open-rules" style="margin-bottom:14px">📖 遊び方・カード一覧</button>
+    <button type="button" class="btn ghost" id="open-rules" style="margin-bottom:14px">📖 遊び方・カード</button>
     <div class="panel">
       <div class="section-title">ルームコード</div>
       <div class="code-big">${escapeHtml(s.code)}</div>
@@ -921,10 +950,17 @@ async function tryPlay(extra = {}) {
 function bind() {
   const goRules = () => {
     openRules(
-      ui.view === "home" ? "home" : ui.view === "lobby" ? "lobby" : "game"
+      ui.view === "home" ? "home" : ui.view === "lobby" ? "lobby" : "game",
+      "howto"
     );
   };
   app.querySelector("#open-rules")?.addEventListener("click", goRules);
+  app.querySelectorAll("[data-rules-tab]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      ui.rulesTab = btn.getAttribute("data-rules-tab") === "cards" ? "cards" : "howto";
+      render();
+    });
+  });
   const backRules = () => {
     if (ui.rulesBack === "lobby" && ui.state?.phase === "lobby") ui.view = "lobby";
     else if (ui.rulesBack === "game" && ui.state) ui.view = "game";
