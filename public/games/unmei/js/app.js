@@ -19,8 +19,11 @@ const ui = {
   customTopic: "",
   pickId: "",
   arenaKey: "",
+  arenaBox: { w: 100, h: 100 },
   drawnFrom: new Set(),
   drawnBatchSeq: 0,
+  stampedFrom: new Set(),
+  stampedPairs: new Set(),
 };
 
 const params = new URLSearchParams(location.search);
@@ -226,6 +229,23 @@ function lobbyHowtoHtml(mode) {
           ? "男／女に分かれて座り、相手の席だけ指名できる。"
           : "自分以外なら誰でも指名。円形に座る。"
       }</p>
+    </div>
+    <div class="panel howto">
+      <div class="section-title">流れ</div>
+      <ol>
+        <li>主催者がモードを選んで開始</li>
+        <li>お題は「一緒に〇〇するなら」など、2人ですること</li>
+        <li>お題が出たら、一番合う人を1人指名（他の人には見えない）</li>
+        <li>${
+          love
+            ? "男女に分かれて座り、相手の席だけ指名できる"
+            : "自分以外なら誰でも指名。円形に座る"
+        }</li>
+        <li>指名したら開票。主催者が人を押すと、矢印の線が伸びて誰を選んだか分かる</li>
+        <li>開票は「1人ずつ」か「全員一気」（開票画面で選べる）</li>
+        <li>両方の線を見てから成立／不成立が分かる。両思いならその2人は抜けられる</li>
+        <li>残った人が3人以上なら<strong>同じお題でもう一回</strong>。1人または2人になったら、残った人が1杯</li>
+      </ol>
     </div>`;
 }
 
@@ -393,7 +413,9 @@ function renderPickTopic() {
 
 function renderChoosing() {
   const s = ui.state;
+  const isHost = s.you?.isHost;
   const canPick = s.you?.active && s.targets?.length;
+  const selected = ui.pickId || s.myPick;
   return `
     ${screenHeadHtml()}
     <div class="meta-bar"><span class="pill">${s.round}回戦</span><span>指名 ${s.pickedCount}/${s.expectedCount}</span></div>
@@ -401,17 +423,17 @@ function renderChoosing() {
     ${
       canPick
         ? `<div class="panel">
-            <div class="section-title">${s.hasPicked ? "指名を変えられるよ" : "1人選んでね"}</div>
+            <div class="section-title">${s.hasPicked ? "指名を変えられるよ" : "1人をタップして指名"}</div>
             <div class="pick-grid">${(s.targets || [])
               .map(
                 (p) =>
-                  `<button type="button" class="pick-card ${ui.pickId === p.id ? "on" : ""}" data-act="target" data-id="${p.id}">
+                  `<button type="button" class="pick-card ${selected === p.id ? "on" : ""}" data-act="target" data-id="${p.id}">
                     <span class="pick-av">${p.avatar}</span>
                     <span class="pick-name">${escapeHtml(p.name)}</span>
                   </button>`
               )
               .join("")}</div>
-            <button class="btn" data-act="submit-pick" ${!ui.pickId || ui.busy ? "disabled" : ""}>${s.hasPicked ? "指名を更新" : "この人に指名"}</button>
+            <p class="host-tip" style="margin:8px 0 0">人をタップすると指名されます</p>
           </div>`
         : `<div class="panel"><p class="wait">${s.you?.active ? "指名できる相手がいません" : "成立したのでこの回戦は見学です"}</p></div>`
     }
@@ -422,6 +444,11 @@ function renderChoosing() {
           ? s.waitingPick.map((p) => `${p.avatar} ${escapeHtml(p.name)}`).join("、")
           : "全員指名済み。開票へ…"
       }</p>
+      ${
+        isHost && s.canClosePicks
+          ? `<button class="btn" data-act="close-picks" ${ui.busy ? "disabled" : ""}>この人数で開票する（${s.pickedCount}人）</button>`
+          : ""
+      }
       ${ui.error ? `<div class="error">${escapeHtml(ui.error)}</div>` : ""}
     </div>`;
 }
@@ -454,16 +481,52 @@ function seatOf(id) {
   return (ui.state?.seats || []).find((s) => s.id === id);
 }
 
+function syncArenaBox() {
+  const arena = document.getElementById("arena");
+  const svg = document.getElementById("lines");
+  if (!arena || !svg) return ui.arenaBox;
+  const r = arena.getBoundingClientRect();
+  const w = Math.max(1, Math.round(r.width));
+  const h = Math.max(1, Math.round(r.height));
+  ui.arenaBox = { w, h };
+  svg.setAttribute("viewBox", `0 0 ${w} ${h}`);
+  svg.setAttribute("preserveAspectRatio", "none");
+  return ui.arenaBox;
+}
+
+function lineGeom(fromId, toId) {
+  const a = seatOf(fromId);
+  const b = seatOf(toId);
+  const { w, h } = ui.arenaBox || { w: 100, h: 100 };
+  let x1 = (a.portX / 100) * w;
+  let y1 = (a.portY / 100) * h;
+  let x2 = (b.portX / 100) * w;
+  let y2 = (b.portY / 100) * h;
+  const dx = x2 - x1;
+  const dy = y2 - y1;
+  const len = Math.hypot(dx, dy) || 1;
+  const ux = dx / len;
+  const uy = dy / len;
+  x1 += ux * 18;
+  y1 += uy * 18;
+  x2 -= ux * 24;
+  y2 -= uy * 24;
+  const sign = fromId < toId ? 1 : -1;
+  const ox = -uy * 12 * sign;
+  const oy = ux * 12 * sign;
+  return { x1: x1 + ox, y1: y1 + oy, x2: x2 + ox, y2: y2 + oy };
+}
+
 function animateDots(svg, x1, y1, x2, y2, color) {
   const dist = Math.hypot(x2 - x1, y2 - y1);
-  const n = Math.max(10, Math.floor(dist / 2.4));
+  const n = Math.max(12, Math.floor(dist / 14));
   const delay = Math.max(70, 2200 / n);
   for (let i = 0; i <= n; i++) {
     const t = i / n;
     const c = svgEl("circle", {
       cx: x1 + (x2 - x1) * t,
       cy: y1 + (y2 - y1) * t,
-      r: i === n ? 1.35 : 1.05,
+      r: i === n ? 6.2 : 5.2,
       fill: color,
       opacity: "0",
     });
@@ -475,35 +538,74 @@ function animateDots(svg, x1, y1, x2, y2, color) {
   return n * delay + 80;
 }
 
-function addHeart(svg, x, y, color) {
-  const g = svgEl("g", {
-    transform: `translate(${x} ${y}) scale(0.022) translate(-256 -256)`,
-  });
-  const path = svgEl("path", {
-    d: "M256 448l-35-31C86 307 32 259 32 192 32 124 85 80 148 80c39 0 77 18 108 47 31-29 69-47 108-47 63 0 116 44 116 112 0 67-54 115-189 225l-35 31z",
-    fill: color,
-  });
-  g.appendChild(path);
-  svg.appendChild(g);
-}
-
 function addArrow(svg, x1, y1, x2, y2, color) {
-  const angle = Math.atan2(y2 - y1, x2 - x1);
-  const deg = (angle * 180) / Math.PI;
+  const deg = (Math.atan2(y2 - y1, x2 - x1) * 180) / Math.PI;
   const g = svgEl("g", {
     transform: `translate(${x2} ${y2}) rotate(${deg})`,
   });
   const path = svgEl("path", {
-    d: "M 0 0 L -4.2 -2.4 L -2.6 0 L -4.2 2.4 Z",
+    d: "M 0 0 L -18 -10 L -12 0 L -18 10 Z",
     fill: color,
+    stroke: "#140c22",
+    "stroke-width": "1.4",
+    "stroke-linejoin": "round",
   });
   g.appendChild(path);
   svg.appendChild(g);
 }
 
+function addMidChevrons(svg, x1, y1, x2, y2, color) {
+  const dx = x2 - x1;
+  const dy = y2 - y1;
+  const deg = (Math.atan2(dy, dx) * 180) / Math.PI;
+  for (const t of [0.36, 0.64]) {
+    const g = svgEl("g", {
+      transform: `translate(${x1 + dx * t} ${y1 + dy * t}) rotate(${deg})`,
+    });
+    const path = svgEl("path", {
+      d: "M 7 0 L -6 -5 L -6 5 Z",
+      fill: color,
+    });
+    g.appendChild(path);
+    svg.appendChild(g);
+  }
+}
+
 function addLineEnd(svg, x1, y1, x2, y2, color) {
-  if (ui.state?.mode === "love") addArrow(svg, x1, y1, x2, y2, color);
-  else addHeart(svg, x2, y2, color);
+  addArrow(svg, x1, y1, x2, y2, color);
+  addMidChevrons(svg, x1, y1, x2, y2, color);
+}
+
+function pairKey(a, b) {
+  return [a, b].sort().join(":");
+}
+
+function seatMidPct(fromId, toId) {
+  const a = seatOf(fromId);
+  const b = seatOf(toId);
+  return { x: (a.portX + b.portX) / 2, y: (a.portY + b.portY) / 2 };
+}
+
+function tryJudgeStamps() {
+  const picks = ui.state?.revealedPicks || [];
+  for (const pick of picks) {
+    if (!pick.judged || !pick.toId || !ui.drawnFrom.has(pick.fromId)) continue;
+    const otherHasLine = picks.some((p) => p.fromId === pick.toId);
+    if (otherHasLine && !ui.drawnFrom.has(pick.toId)) continue;
+    if (pick.mutual) {
+      const key = pairKey(pick.fromId, pick.toId);
+      if (ui.stampedPairs.has(key)) continue;
+      ui.stampedPairs.add(key);
+      const mid = seatMidPct(pick.fromId, pick.toId);
+      stampAt(mid.x, mid.y, true);
+      showCenterHeart();
+    } else {
+      if (ui.stampedFrom.has(pick.fromId)) continue;
+      ui.stampedFrom.add(pick.fromId);
+      const mid = seatMidPct(pick.fromId, pick.toId);
+      stampAt(mid.x, mid.y, false);
+    }
+  }
 }
 
 function stampAt(midX, midY, ok) {
@@ -542,45 +644,40 @@ function showCenterHeart() {
   sparkles();
 }
 
-function drawPickLineInstant(fromId, toId, mutual) {
+function drawPickLineInstant(fromId, toId) {
   const svg = document.getElementById("lines");
-  if (!svg) return;
   const a = seatOf(fromId);
   const b = seatOf(toId);
-  if (!a || !b) return;
+  if (!svg || !a || !b) return;
+  const g = lineGeom(fromId, toId);
   const color = lineColor(fromId);
-  const dist = Math.hypot(b.portX - a.portX, b.portY - a.portY);
-  const n = Math.max(8, Math.floor(dist / 2.6));
+  const dist = Math.hypot(g.x2 - g.x1, g.y2 - g.y1);
+  const n = Math.max(10, Math.floor(dist / 16));
   for (let i = 0; i <= n; i++) {
     const t = i / n;
     svg.appendChild(
       svgEl("circle", {
-        cx: a.portX + (b.portX - a.portX) * t,
-        cy: a.portY + (b.portY - a.portY) * t,
-        r: i === n ? 1.6 : 1.15,
+        cx: g.x1 + (g.x2 - g.x1) * t,
+        cy: g.y1 + (g.y2 - g.y1) * t,
+        r: i === n ? 6.2 : 5.2,
         fill: color,
       })
     );
   }
-  addLineEnd(svg, a.portX, a.portY, b.portX, b.portY, mutual ? "#ff4d88" : "#ff6b7a");
-  stampAt((a.portX + b.portX) / 2, (a.portY + b.portY) / 2, mutual);
-  if (mutual) showCenterHeart();
+  addLineEnd(svg, g.x1, g.y1, g.x2, g.y2, color);
 }
 
-function drawPickLine(fromId, toId, mutual, { stamp = true, heartCenter = true } = {}) {
+function drawPickLine(fromId, toId) {
   const svg = document.getElementById("lines");
-  if (!svg) return 0;
   const a = seatOf(fromId);
   const b = seatOf(toId);
-  if (!a || !b) return 0;
+  if (!svg || !a || !b) return 0;
+  const g = lineGeom(fromId, toId);
   const color = lineColor(fromId);
-  const ms = animateDots(svg, a.portX, a.portY, b.portX, b.portY, color);
+  const ms = animateDots(svg, g.x1, g.y1, g.x2, g.y2, color);
   setTimeout(() => {
-    addLineEnd(svg, a.portX, a.portY, b.portX, b.portY, mutual ? "#ff4d88" : "#ff6b7a");
-    if (stamp) {
-      stampAt((a.portX + b.portX) / 2, (a.portY + b.portY) / 2, mutual);
-    }
-    if (mutual && heartCenter) showCenterHeart();
+    addLineEnd(svg, g.x1, g.y1, g.x2, g.y2, color);
+    tryJudgeStamps();
   }, ms);
   return ms;
 }
@@ -596,6 +693,9 @@ function setupArena(s) {
   if (fx) fx.replaceChildren();
   ui.drawnFrom = new Set();
   ui.drawnBatchSeq = 0;
+  ui.stampedFrom = new Set();
+  ui.stampedPairs = new Set();
+  syncArenaBox();
 
   for (const seat of s.seats || []) {
     const p = playerById(seat.id);
@@ -604,6 +704,7 @@ function setupArena(s) {
     wrap.className = `seat ${genderClass(p)}`;
     wrap.style.left = `${seat.x}%`;
     wrap.style.top = `${seat.y}%`;
+    wrap.dataset.id = seat.id;
     wrap.innerHTML = `<div class="av">${p.avatar}</div><div class="nm">${escapeHtml(p.name)}</div>`;
     if ((s.phase === "result" || s.phase === "gameover") && s.remain && !s.remain.some((r) => r.id === p.id) && (s.pairs || []).some((pair) => pair.a.id === p.id || pair.b.id === p.id)) {
       wrap.classList.add("paired");
@@ -618,14 +719,16 @@ function setupArena(s) {
     port.dataset.act = "reveal-one";
     port.dataset.id = seat.id;
     port.title = p.name;
+    port.innerHTML = `<span class="port-arrow">➤</span>`;
     seatsEl.appendChild(port);
   }
   updatePorts(s);
   if (s.phase === "result" || s.phase === "gameover") {
     for (const pick of s.revealedPicks || []) {
       ui.drawnFrom.add(pick.fromId);
-      drawPickLineInstant(pick.fromId, pick.toId, pick.mutual);
+      drawPickLineInstant(pick.fromId, pick.toId);
     }
+    tryJudgeStamps();
   }
 }
 
@@ -635,9 +738,23 @@ function updatePorts(s) {
   document.querySelectorAll(".port").forEach((port) => {
     const id = port.dataset.id;
     const done = (s.revealedIds || []).includes(id);
+    const can = isHost && oneByOne && !done;
     port.classList.toggle("done", done);
-    port.disabled = !isHost || !oneByOne || done || s.phase !== "reveal";
-    port.classList.toggle("pulse", isHost && oneByOne && !done && s.phase === "reveal");
+    port.disabled = !can;
+    port.classList.toggle("pulse", can);
+  });
+  document.querySelectorAll(".seat").forEach((seat) => {
+    const id = seat.dataset.id;
+    if (!id) return;
+    const done = (s.revealedIds || []).includes(id);
+    const can = isHost && oneByOne && !done;
+    seat.classList.toggle("tap", can);
+    seat.classList.toggle("done", done);
+    if (can) {
+      seat.dataset.act = "reveal-one";
+    } else {
+      delete seat.dataset.act;
+    }
   });
 }
 
@@ -653,7 +770,7 @@ function syncRevealLines(s) {
   for (const pick of s.revealedPicks || []) {
     if (ui.drawnFrom.has(pick.fromId) || animating.has(pick.fromId)) continue;
     ui.drawnFrom.add(pick.fromId);
-    drawPickLineInstant(pick.fromId, pick.toId, pick.mutual);
+    drawPickLineInstant(pick.fromId, pick.toId);
   }
 
   if (last?.style === "all" && last.batch && last.seq !== ui.drawnBatchSeq) {
@@ -662,18 +779,17 @@ function syncRevealLines(s) {
       if (ui.drawnFrom.has(ev.fromId)) return;
       ui.drawnFrom.add(ev.fromId);
       setTimeout(() => {
-        drawPickLine(ev.fromId, ev.toId, ev.mutual, {
-          stamp: true,
-          heartCenter: ev.mutual,
-        });
+        drawPickLine(ev.fromId, ev.toId);
       }, i * 550);
     });
+    tryJudgeStamps();
     return;
   }
   if (last && last.style !== "all" && last.fromId && !ui.drawnFrom.has(last.fromId)) {
     ui.drawnFrom.add(last.fromId);
-    drawPickLine(last.fromId, last.toId, last.mutual);
+    drawPickLine(last.fromId, last.toId);
   }
+  tryJudgeStamps();
 }
 
 function arenaHtml(s) {
@@ -702,11 +818,32 @@ function pairHtml(s) {
   </div>`;
 }
 
-function renderReveal() {
-  const s = ui.state;
+function hostActionsHtml(s) {
   const isHost = s.you?.isHost;
   const left = (s.expectedCount || 0) - (s.revealedIds || []).length;
   const allDone = left <= 0;
+  if (!isHost) {
+    return `<p class="wait">${allDone ? "結果待ち…" : s.revealStyle === "one" ? `残り ${left} 人` : ""}</p>`;
+  }
+  return `
+    ${
+      allDone
+        ? `<button class="btn" data-act="finish" ${ui.busy ? "disabled" : ""}>結果へ</button>`
+        : `<p class="wait">${s.revealStyle === "one" ? `残り ${left} 人` : "線が伸びています…"}</p>
+           ${
+             s.canSkipReveal
+               ? `<button class="btn" data-act="skip-result" ${ui.busy ? "disabled" : ""}>${
+                   (s.revealedIds || []).length ? "残りをスキップして次へ" : "開票せずに次の回戦へ"
+                 }</button>`
+               : ""
+           }`
+    }
+    <button class="btn ghost" data-act="back-topic" ${ui.busy ? "disabled" : ""}>お題選択に戻る</button>`;
+}
+
+function renderReveal() {
+  const s = ui.state;
+  const isHost = s.you?.isHost;
   return `
     ${screenHeadHtml()}
     <div class="meta-bar">
@@ -725,22 +862,13 @@ function renderReveal() {
     <p class="host-tip">${
       isHost
         ? s.revealStyle === "all" || (s.revealedIds || []).length
-          ? "線が伸びるのを見てね"
-          : "テーブルの丸ボタンを押すと、その人の線が伸びます"
-        : "主催者が開票しています。線を見てね"
+          ? "線の矢印が、誰に向かっているかを表します。両方の線が出てから成立／不成立が出ます"
+          : "人のアイコンか矢印ボタンを押すと、その人の線が伸びます"
+        : "主催者が開票しています。矢印の向きを見てね"
     }</p>
     ${arenaHtml(s)}
     <div id="host-actions">
-    ${
-      isHost && allDone
-        ? `<button class="btn" data-act="finish" ${ui.busy ? "disabled" : ""}>結果へ</button>`
-        : `<p class="wait">${allDone ? "結果待ち…" : s.revealStyle === "one" ? `残り ${left} 人` : ""}</p>`
-    }
-    ${
-      isHost
-        ? `<button class="btn ghost" data-act="back-topic" ${ui.busy ? "disabled" : ""}>お題選択に戻る</button>`
-        : ""
-    }
+    ${hostActionsHtml(s)}
     </div>
     ${ui.error ? `<div class="error">${escapeHtml(ui.error)}</div>` : ""}
     ${pairHtml(s)}`;
@@ -762,7 +890,8 @@ function renderResult() {
       <p class="host-tip">同じお題でもう一回指名します。</p>
       ${
         isHost
-          ? `<button class="btn" data-act="next" ${ui.busy ? "disabled" : ""}>同じお題でもう一回</button>`
+          ? `<button class="btn" data-act="next" ${ui.busy ? "disabled" : ""}>同じお題でもう一回</button>
+             <button class="btn ghost" data-act="back-topic" ${ui.busy ? "disabled" : ""}>お題選択に戻る</button>`
           : `<p class="wait">主催者の操作待ち…</p>`
       }
     </div>
@@ -804,7 +933,8 @@ function renderGameover() {
       ${pairHtml(s)}
       ${
         isHost
-          ? `<button class="btn" data-act="again" ${ui.busy ? "disabled" : ""}>ロビーに戻る</button>`
+          ? `<button class="btn" data-act="back-topic" ${ui.busy ? "disabled" : ""}>お題選択に戻る</button>
+             <button class="btn ghost" data-act="again" ${ui.busy ? "disabled" : ""}>ロビーに戻る</button>`
           : `<p class="wait">主催者の操作待ち…</p>`
       }
     </div>
@@ -862,21 +992,7 @@ function render() {
     if (styleRow && (s.revealedIds || []).length) styleRow.remove();
     const actions = document.getElementById("host-actions");
     if (actions) {
-      const left = (s.expectedCount || 0) - (s.revealedIds || []).length;
-      const allDone = left <= 0;
-      const isHost = s.you?.isHost;
-      actions.innerHTML = `
-        ${
-          isHost && allDone
-            ? `<button class="btn" data-act="finish" ${ui.busy ? "disabled" : ""}>結果へ</button>`
-            : `<p class="wait">${allDone ? "結果待ち…" : s.revealStyle === "one" ? `残り ${left} 人` : ""}</p>`
-        }
-        ${
-          isHost
-            ? `<button class="btn ghost" data-act="back-topic" ${ui.busy ? "disabled" : ""}>お題選択に戻る</button>`
-            : ""
-        }
-        ${ui.error ? `<div class="error">${escapeHtml(ui.error)}</div>` : ""}`;
+      actions.innerHTML = `${hostActionsHtml(s)}${ui.error ? `<div class="error">${escapeHtml(ui.error)}</div>` : ""}`;
     }
   }
   if (s?.phase === "reveal") syncRevealLines(s);
@@ -954,15 +1070,16 @@ async function onClick(e) {
   if (act === "custom-topic") return emit("pick_custom_topic", { text: ui.customTopic });
   if (act === "target") {
     ui.pickId = btn.dataset.id;
-    render();
-    return;
+    return emit("submit_pick", { targetId: ui.pickId });
   }
   if (act === "submit-pick") return emit("submit_pick", { targetId: ui.pickId });
+  if (act === "close-picks") return emit("close_picks");
   if (act === "pick-for") return emit("host_pick_for", { playerId: btn.dataset.id });
   if (act === "reveal-one") return emit("reveal_one", { playerId: btn.dataset.id });
   if (act === "reveal-all") return emit("reveal_all");
   if (act === "back-topic") return emit("back_to_topic");
   if (act === "finish") return emit("finish_reveal");
+  if (act === "skip-result") return emit("finish_reveal", { skip: true });
   if (act === "next") return emit("next_round");
   if (act === "again") return emit("back_to_lobby");
   if (!s) return;

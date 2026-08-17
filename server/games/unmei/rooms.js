@@ -415,15 +415,31 @@ export function validTargets(room, playerId) {
   });
 }
 
+function revealableIds(room) {
+  return room.activeIds.filter((id) => room.picks.has(id));
+}
+
+function startReveal(room) {
+  room.phase = "reveal";
+  room.revealedIds = [];
+  room.revealSeq = 0;
+  room.lastReveal = null;
+}
+
 function maybeStartReveal(room) {
   const need = activeAll(room);
   if (!need.length) return;
-  if (need.every((p) => room.picks.has(p.id))) {
-    room.phase = "reveal";
-    room.revealedIds = [];
-    room.revealSeq = 0;
-    room.lastReveal = null;
+  if (need.every((p) => room.picks.has(p.id))) startReveal(room);
+}
+
+export function closePicks(room, playerId) {
+  if (playerId !== room.hostId) return { error: "主催者のみ" };
+  if (room.phase !== "choosing") return { error: "指名中だけです" };
+  if (revealableIds(room).length < 2) {
+    return { error: "2人以上が指名してから締め切ってね" };
   }
+  startReveal(room);
+  return { ok: true };
 }
 
 export function submitPick(room, playerId, targetId) {
@@ -465,18 +481,26 @@ function isMutual(room, fromId) {
   return room.picks.get(to) === fromId;
 }
 
+function isJudged(room, fromId, revealedSet) {
+  const to = room.picks.get(fromId);
+  if (!to) return false;
+  return revealedSet.has(to);
+}
+
 function pushReveal(room, fromId) {
   if (room.revealedIds.includes(fromId)) return { error: "もう開票済みです" };
   const toId = room.picks.get(fromId);
   if (!toId) return { error: "指名がありません" };
   room.revealedIds.push(fromId);
   room.revealSeq += 1;
-  const mutual = isMutual(room, fromId);
+  const revealedSet = new Set(room.revealedIds);
+  const judged = isJudged(room, fromId, revealedSet);
   room.lastReveal = {
     seq: room.revealSeq,
     fromId,
     toId,
-    mutual,
+    mutual: judged ? isMutual(room, fromId) : null,
+    judged,
     style: "one",
   };
   return { ok: true, lastReveal: room.lastReveal };
@@ -493,7 +517,7 @@ export function revealAll(room, playerId) {
   if (playerId !== room.hostId) return { error: "主催者のみ" };
   if (room.phase !== "reveal") return { error: "開票中だけです" };
   room.revealStyle = "all";
-  const left = room.activeIds.filter((id) => !room.revealedIds.includes(id));
+  const left = revealableIds(room).filter((id) => !room.revealedIds.includes(id));
   if (!left.length) return { error: "全員開票済みです" };
   const batch = [];
   for (const id of left) {
@@ -504,6 +528,7 @@ export function revealAll(room, playerId) {
       seq: room.revealSeq,
       fromId: id,
       toId,
+      judged: true,
       mutual: isMutual(room, id),
     });
   }
@@ -512,6 +537,7 @@ export function revealAll(room, playerId) {
     fromId: left[0],
     toId: room.picks.get(left[0]),
     mutual: isMutual(room, left[0]),
+    judged: true,
     style: "all",
     batch,
   };
@@ -521,10 +547,11 @@ export function revealAll(room, playerId) {
 function findMutualPairs(room) {
   const matched = new Set();
   const pairs = [];
+  const revealed = new Set(room.revealedIds);
   for (const id of room.activeIds) {
-    if (matched.has(id)) continue;
+    if (matched.has(id) || !revealed.has(id)) continue;
     const to = room.picks.get(id);
-    if (!to || matched.has(to)) continue;
+    if (!to || matched.has(to) || !revealed.has(to)) continue;
     if (room.picks.get(to) === id) {
       pairs.push({
         a: id,
@@ -558,11 +585,11 @@ function addDrinks(room, ids, kind) {
   room.resultKind = kind;
 }
 
-export function finishReveal(room, playerId) {
+export function finishReveal(room, playerId, skipLeft = false) {
   if (playerId !== room.hostId) return { error: "主催者のみ" };
   if (room.phase !== "reveal") return { error: "開票中だけです" };
-  const left = room.activeIds.filter((id) => !room.revealedIds.includes(id));
-  if (left.length) return { error: "まだ開票していない人がいます" };
+  const left = revealableIds(room).filter((id) => !room.revealedIds.includes(id));
+  if (left.length && !skipLeft) return { error: "まだ開票していない人がいます" };
 
   const { pairs, matched } = findMutualPairs(room);
   room.pairs = [...(room.pairs || []), ...pairs];
@@ -611,8 +638,15 @@ export function nextRound(room, playerId) {
 
 export function backToPickTopic(room, playerId) {
   if (playerId !== room.hostId) return { error: "主催者のみ" };
-  if (!["choosing", "reveal"].includes(room.phase)) {
-    return { error: "お題選択に戻れるのは指名中・開票中だけです" };
+  if (!["choosing", "reveal", "result", "gameover"].includes(room.phase)) {
+    return { error: "お題選択に戻れるのはゲーム中だけです" };
+  }
+  if (room.phase === "gameover") {
+    room.activeIds = playerList(room).map((p) => p.id);
+    room.pairs = [];
+    room.round = 0;
+    beginPickTopic(room);
+    return { ok: true };
   }
   const tid = room.topic?.id;
   if (tid) {
@@ -733,16 +767,23 @@ export function publicState(room, viewerId) {
   const myPick = room.picks.get(viewerId) || null;
   const revealedPicks = showPicks
     ? (room.roundIds?.length ? room.roundIds : room.activeIds)
-        .filter((id) => revealedSet.has(id) || room.phase !== "reveal")
+        .filter((id) => revealedSet.has(id) && room.picks.has(id))
         .map((id) => {
           const to = room.picks.get(id);
+          const judged = room.phase !== "reveal" || isJudged(room, id, revealedSet);
           return {
             fromId: id,
             toId: to,
-            mutual: to ? room.picks.get(to) === id : false,
+            judged,
+            mutual: judged && to ? room.picks.get(to) === id : null,
           };
         })
     : [];
+  const waitingPick =
+    room.phase === "choosing"
+      ? activeAll(room).filter((p) => !room.picks.has(p.id)).map((p) => publicPerson(room, p.id))
+      : [];
+  const revealable = revealableIds(room);
 
   const drinkBoard = playerList(room)
     .map((p) => ({
@@ -753,10 +794,6 @@ export function publicState(room, viewerId) {
       isBot: !!p.isBot,
     }))
     .sort((a, b) => b.totalCups - a.totalCups);
-
-  const waitingPick = room.phase === "choosing"
-    ? activeAll(room).filter((p) => !room.picks.has(p.id)).map((p) => publicPerson(room, p.id))
-    : [];
 
   return {
     game: "unmei",
@@ -793,7 +830,19 @@ export function publicState(room, viewerId) {
         : [],
     waitingPick,
     pickedCount: activeAll(room).filter((p) => room.picks.has(p.id)).length,
-    expectedCount: activeAll(room).length,
+    expectedCount:
+      room.phase === "reveal" || room.phase === "result" || room.phase === "gameover"
+        ? revealable.length
+        : activeAll(room).length,
+    canClosePicks:
+      isHost &&
+      room.phase === "choosing" &&
+      room.picks.size >= 2 &&
+      waitingPick.length > 0,
+    canSkipReveal:
+      isHost &&
+      room.phase === "reveal" &&
+      revealable.some((id) => !revealedSet.has(id)),
     revealedIds: [...room.revealedIds],
     lastReveal: room.phase === "reveal" ? room.lastReveal : null,
     revealedPicks,
