@@ -514,7 +514,8 @@ function renderVoteWolf() {
         )
         .join("")}</div>`;
   } else {
-    body = `<p class="host-tip">ベストアンサー: 「${escapeHtml(s.bestAnswer?.label || "")}」${ba ? `（${escapeHtml(ba)}）` : ""}<br/>選ばれなかった人の中から人狼を指名</p>
+    body = `<p class="ba-note">ベストアンサー: 「${escapeHtml(s.bestAnswer?.label || "")}」${ba ? `（${escapeHtml(ba)}）` : ""}</p>
+      <p class="vote-lead">選ばれなかった人から<br/>怪しい人を投票して</p>
       <div class="pick-grid">${(s.wolfCandidates || [])
         .map((p) =>
           pickCardHtml({
@@ -547,6 +548,10 @@ function renderResult() {
   } else {
     banner = `<div class="result-banner escape">人狼を逃した…市民の罰杯</div>`;
   }
+  const missNote =
+    s.resultKind === "wolf_escape" && s.accused
+      ? `<p class="miss-note">${s.accused.avatar} ${escapeHtml(s.accused.name)} は<br/>人狼ではありませんでした</p>`
+      : "";
   const drinks = (s.drinks || []).length
     ? `<div class="drink-list">${s.drinks
         .map(
@@ -559,6 +564,7 @@ function renderResult() {
     ${screenHeadHtml()}
     <div class="meta-bar"><span class="pill">結果</span><span>ラウンド ${s.round}</span></div>
     ${banner}
+    ${missNote}
     <div class="panel">
       <p class="sub" style="margin:0 0 8px">人狼は ${s.wolf?.avatar || ""} ${escapeHtml(s.wolf?.name || "?")}</p>
       <p class="sub" style="margin:0 0 8px">ベストアンサー「${escapeHtml(s.bestAnswer?.label || "")}」</p>

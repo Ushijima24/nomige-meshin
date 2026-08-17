@@ -245,6 +245,33 @@ input[type="text"] {
   margin: 4px 0 10px;
   line-height: 1.45;
 }
+.ba-note {
+  font-size: 0.9rem;
+  color: var(--muted);
+  font-weight: 700;
+  text-align: center;
+  margin: 0 0 10px;
+  line-height: 1.4;
+}
+.vote-lead {
+  font-size: 1.2rem;
+  color: var(--accent);
+  font-weight: 800;
+  text-align: center;
+  margin: 0 0 14px;
+  line-height: 1.45;
+}
+.miss-note {
+  text-align: center;
+  font-size: 1.15rem;
+  font-weight: 800;
+  color: var(--danger);
+  line-height: 1.45;
+  margin: 0 0 14px;
+  padding: 12px 14px;
+  background: rgba(255, 107, 138, 0.14);
+  border-radius: 14px;
+}
 
 .groups { display: flex; flex-direction: column; gap: 10px; }
 .group-card {
