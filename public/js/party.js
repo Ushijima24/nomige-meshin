@@ -137,11 +137,26 @@ function renderLobby() {
     <div class="brand">
       <div class="name">NOMI GE PARTY</div>
       <h1>パーティー</h1>
-      <p>コードを共有して、そろったらゲームを選んでね</p>
+      <p>コード <strong>${escapeHtml(s.code)}</strong>　そろったらゲームを選んでね</p>
     </div>
     <div class="panel">
-      <div class="section-title">ルームコード</div>
-      <div class="code-big">${escapeHtml(s.code)}</div>
+      <div class="section-title">${s.isHost ? "ゲームを選ぶ" : "主催者の選択待ち"}</div>
+      ${
+        s.isHost
+          ? games
+              .map(
+                (g) =>
+                  `<button type="button" class="game-pick" data-game="${g.id}" ${
+                    ui.busy || s.players.length < 2 ? "disabled" : ""
+                  }>
+                    <div class="title">${escapeHtml(g.title)}</div>
+                    <div class="desc">${escapeHtml(g.desc)}</div>
+                  </button>`
+              )
+              .join("")
+          : `<p class="sub" style="margin:0">主催者がゲームを選ぶと、みんなでその画面に移動します。</p>`
+      }
+      ${s.players.length < 2 ? `<p class="sub">開始には2人以上必要です（PC追加も可）</p>` : ""}
     </div>
     <div class="panel">
       <div class="section-title">参加者 ${s.players.length}/10</div>
@@ -170,43 +185,19 @@ function renderLobby() {
           : ""
       }
     </div>
-    <div class="panel">
-      <div class="section-title">累計（ゲームを変えても持ち越し）</div>
-      <div class="players">${(s.drinkBoard || [])
+    <div class="panel totals-mini">
+      <div class="section-title">累計</div>
+      <div class="totals-line">${(s.drinkBoard || [])
         .map(
           (p) =>
-            `<div class="player-chip">
-              <div class="av">${p.avatar}</div>
-              <div class="nm">${escapeHtml(p.name)}</div>
-              <div class="meta"><span class="badge drink">${p.drinkTotal || 0}杯</span></div>
-            </div>`
+            `<span class="total-chip">${p.avatar} ${escapeHtml(p.name)} <b>${p.drinkTotal || 0}</b></span>`
         )
         .join("")}</div>
       ${
         s.isHost
-          ? `<button class="btn danger" id="reset-drinks" ${ui.busy ? "disabled" : ""} style="margin-top:12px">累計をリセット</button>
-             <p class="sub" style="margin:8px 0 0">主催者のみ。全員の杯数が0に戻ります。</p>`
+          ? `<button class="btn danger mini" id="reset-drinks" ${ui.busy ? "disabled" : ""}>累計リセット</button>`
           : ""
       }
-    </div>
-    <div class="panel">
-      <div class="section-title">${s.isHost ? "ゲームを選ぶ" : "主催者の選択待ち"}</div>
-      ${
-        s.isHost
-          ? games
-              .map(
-                (g) =>
-                  `<button type="button" class="game-pick" data-game="${g.id}" ${
-                    ui.busy || s.players.length < 2 ? "disabled" : ""
-                  }>
-                    <div class="title">${escapeHtml(g.title)}</div>
-                    <div class="desc">${escapeHtml(g.desc)}</div>
-                  </button>`
-              )
-              .join("")
-          : `<p class="sub" style="margin:0">主催者がゲームを選ぶと、みんなでその画面に移動します。</p>`
-      }
-      ${s.players.length < 2 ? `<p class="sub">開始には2人以上必要です（PC追加も可）</p>` : ""}
     </div>
     <button class="btn ghost" id="leave" ${ui.busy ? "disabled" : ""}>この部屋から出る</button>
     ${ui.error ? `<div class="error">${escapeHtml(ui.error)}</div>` : ""}
