@@ -205,15 +205,17 @@ function renderHome() {
       ${ui.error ? `<div class="error">${escapeHtml(ui.error)}</div>` : ""}
     </div>
     <div class="panel">
-      <div class="section-title">ルール</div>
-      <ul class="rules">
-        <li>GMがお題を1つ選ぶ。2回戦が終わるまで全員同じお題</li>
-        <li>1回目は全員同時に名前を入力。順位がカードになる</li>
-        <li>2回目は同じお題でもう一枚か、ステイ。1回目に出た項目は使えない</li>
-        <li>22位以上・合計22超えはバースト（順位は表示）</li>
-        <li>バーストした人が飲む。誰もいなければ最小合計が飲む</li>
-        <li>同点は該当者みんな。21ぴったりがいると敗者は2杯</li>
-      </ul>
+      <div class="section-title">遊び方（くわしく）</div>
+      <ol class="rules">
+        <li>作成者（GM）がお題を1つ選ぶ。そのラウンドは全員同じお題</li>
+        <li><strong>1回目</strong>：全員が同時に「項目名」を入力。みんランの順位がカードになる（例: 3位 → 3点）</li>
+        <li><strong>2回目</strong>：同じお題でもう1枚引くか、ステイ。1回目に出た項目は使えない</li>
+        <li>カードの点数は順位。合計が<strong>21ぴったり</strong>が理想</li>
+        <li><strong>22位以上</strong>、または合計が<strong>22以上</strong>はバースト（順位は見える）</li>
+        <li>バーストした人が飲む。誰もバーストしていなければ<strong>合計が最小</strong>の人が飲む</li>
+        <li>同点なら該当者みんな。誰かが21のとき、敗者は<strong>2杯</strong></li>
+        <li>GMは回答の正誤確認（圏外にするなど）を行う</li>
+      </ol>
       <p class="credit">データ出典: <a href="https://ranking.net/" target="_blank" rel="noopener">みんなのランキング</a></p>
     </div>`;
 }

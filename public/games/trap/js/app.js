@@ -10,6 +10,7 @@ const app = document.getElementById("app");
 
 const ui = {
   view: "home",
+  rulesBack: "home",
   name: localStorage.getItem("trap_name") || "",
   avatar: localStorage.getItem("trap_avatar") || AVATARS[0],
   joinCode: "",
@@ -100,8 +101,10 @@ let announceHideTimer = null;
 socket.on("state", (state) => {
   ui.state = state;
   ui.error = "";
-  if (state.phase === "lobby") ui.view = "lobby";
-  else ui.view = "game";
+  if (ui.view !== "rules") {
+    if (state.phase === "lobby") ui.view = "lobby";
+    else ui.view = "game";
+  }
   if (!state.yourTurn) {
     ui.selectedInstanceId = null;
     ui.mode = null;
@@ -305,11 +308,128 @@ function cardButton(
   </button>`;
 }
 
+function openRules(back = "home") {
+  ui.rulesBack = back;
+  ui.view = "rules";
+  render();
+}
+
+function catalogByRank() {
+  const order = ["SSS", "S", "A", "B", "C"];
+  const cards = ui.catalog?.cards || [];
+  return order
+    .map((rank) => ({
+      rank,
+      cards: cards.filter((c) => c.rank === rank),
+    }))
+    .filter((g) => g.cards.length);
+}
+
+function renderRules() {
+  const rates = ui.catalog?.rates || { SSS: 1, S: 9, A: 20, B: 30, C: 40 };
+  const groups = catalogByRank();
+  return `
+    <button type="button" class="back linkish" id="rules-back">← 戻る</button>
+    <h1>遊び方</h1>
+    <p class="sub">はじめてでもわかるトラップゲームの説明です。</p>
+
+    <div class="panel howto">
+      <div class="section-title">このゲームは何？</div>
+      <p>飲み会で遊ぶ<strong>お酒のたらい回し</strong>ゲームです。誰か1人に「酒」が回ってきます。カードでかわしたり増やしたりして、最後に負けた人が飲みます。</p>
+    </div>
+
+    <div class="panel howto">
+      <div class="section-title">始め方</div>
+      <ol class="howto-list">
+        <li>誰か1人が<strong>ルーム作成</strong>する（主催者）</li>
+        <li>友達に<strong>ルームコード</strong>かURLを送る</li>
+        <li>2人以上そろったら主催者が<strong>ゲーム開始</strong></li>
+        <li>人数が足りないときは<strong>PC参加</strong>でダミーを足せる</li>
+      </ol>
+    </div>
+
+    <div class="panel howto">
+      <div class="section-title">試合の流れ</div>
+      <ol class="howto-list">
+        <li>全員に手札が<strong>3枚</strong>配られる（必ず「渡せるカード」が1枚以上入る）</li>
+        <li>最初に酒を持つ人は、これまでの<strong>累計杯数が少ない人ほど出やすい</strong></li>
+        <li>酒を持っている人の番。カードを1枚使うか、「負けを認める」</li>
+        <li>酒を渡せたら次の人へ。渡せない／負けたらその人が飲む</li>
+        <li>飲む量は画面の「×杯」。倍化カードなどで増える</li>
+        <li>試合が終わったら、主催者が「次の試合」か「ロビーへ」</li>
+      </ol>
+    </div>
+
+    <div class="panel howto">
+      <div class="section-title">カードの種類</div>
+      <ul class="howto-list">
+        <li><strong>渡す系</strong> … 酒を誰かに渡す（指定／ランダム／確率など）</li>
+        <li><strong>自分の番が続く系</strong> … 効果だけ発動して、酒は手元に残る</li>
+        <li><strong>持ってるだけ系</strong> … 押せない。試合終了時などに発動（犯罪者・効果なし・自宅警備員）</li>
+      </ul>
+      <p class="hint">カードには「名前」と「効果」が書いてあります。ランクが高いほどレアで強い傾向です。</p>
+    </div>
+
+    <div class="panel howto">
+      <div class="section-title">覚えておくと得なこと</div>
+      <ul class="howto-list">
+        <li><strong>ステルス・クロック・時限爆弾</strong>は、使ったその瞬間は残り回数を減らさない</li>
+        <li><strong>エスコン</strong>は使った人にだけ効く（他の人の「自分の番継続」はそのまま）</li>
+        <li><strong>無敵</strong>の人が負けても、本人は飲まず両隣が飲む</li>
+        <li>手札が<strong>0枚</strong>のまま酒が来ると自動負け</li>
+        <li>LINEなど別アプリを開いても、同じブラウザなら戻ってこれる</li>
+        <li>主催者はロビーでメンバー削除、試合中に「試合を中止してロビーへ」ができる</li>
+      </ul>
+    </div>
+
+    <div class="panel">
+      <div class="section-title">出現率</div>
+      <div class="rates">
+        <span class="rank SSS">SSS ${rates.SSS}%</span>
+        <span class="rank S">S ${rates.S}%</span>
+        <span class="rank A">A ${rates.A}%</span>
+        <span class="rank B">B ${rates.B}%</span>
+        <span class="rank C">C ${rates.C}%</span>
+      </div>
+    </div>
+
+    <div class="panel">
+      <div class="section-title">カード一覧</div>
+      <p class="hint">実際に手札に出るカードと効果です。</p>
+      ${
+        groups.length
+          ? groups
+              .map(
+                (g) => `
+        <div class="card-rank-block">
+          <div class="card-rank-head"><span class="rank ${g.rank}">${g.rank}</span></div>
+          <div class="card-ref-list">
+            ${g.cards
+              .map(
+                (c) => `
+              <div class="card-ref rank-${c.rank}">
+                <div class="card-ref-name">${escapeHtml(c.name)}</div>
+                <div class="card-ref-effect">${escapeHtml(c.effect)}</div>
+              </div>`
+              )
+              .join("")}
+          </div>
+        </div>`
+              )
+              .join("")
+          : `<p class="sub">カード情報を読み込み中…</p>`
+      }
+    </div>
+    <button class="btn ghost" id="rules-back-bottom" style="margin-top:8px">戻る</button>
+  `;
+}
+
 function renderHome() {
   return `
     <a class="back" href="/">← ゲーム選択</a>
     <h1>トラップゲーム</h1>
     <p class="sub">お酒をたらい回し。カードでかわして、なすりつけろ。</p>
+    <button type="button" class="btn ghost" id="open-rules" style="margin-bottom:14px">📖 遊び方・カード一覧</button>
     <div class="panel">
       <label>なまえ</label>
       <input type="text" id="name" maxlength="12" value="${escapeHtml(
@@ -333,15 +453,13 @@ function renderHome() {
       ${ui.error ? `<div class="error">${escapeHtml(ui.error)}</div>` : ""}
     </div>
     <div class="panel">
-      <div class="section-title">出現率</div>
-      <div class="rates">
-        <span class="rank SSS">SSS 1%</span>
-        <span class="rank S">S 9%</span>
-        <span class="rank A">A 20%</span>
-        <span class="rank B">B 30%</span>
-        <span class="rank C">C 40%</span>
-      </div>
-      <p class="sub" style="margin:10px 0 0;font-size:0.8rem">カードは「名前 効果」。上位は色＋キラキラ。</p>
+      <div class="section-title">ざっくりルール</div>
+      <ul class="howto-list compact">
+        <li>酒が回ってきた人がカードを使う</li>
+        <li>渡せば次の人へ。負けを認めると飲む</li>
+        <li>カードの効果で量が増えたり、無敵になったりする</li>
+      </ul>
+      <p class="hint">くわしくは上の「遊び方・カード一覧」へ。</p>
     </div>`;
 }
 
@@ -350,6 +468,7 @@ function renderLobby() {
   return `
     <a class="back" href="/">← ゲーム選択</a>
     <h1>トラップゲーム</h1>
+    <button type="button" class="btn ghost" id="open-rules" style="margin-bottom:14px">📖 遊び方・カード一覧</button>
     <div class="panel">
       <div class="section-title">ルームコード</div>
       <div class="code-big">${escapeHtml(s.code)}</div>
@@ -638,6 +757,7 @@ function renderPlaying() {
   return `
     ${announceHtml()}
     <h1>試合 ${s.matchNumber}</h1>
+    <button type="button" class="btn ghost" id="open-rules" style="margin-bottom:12px">📖 遊び方</button>
     <div class="hud">
       <div class="stat"><div class="k">飲む量</div><div class="v">×${s.amount}</div></div>
       <div class="stat"><div class="k">酒の場所</div><div class="v" style="font-size:1rem">${escapeHtml(
@@ -684,6 +804,7 @@ function renderResult() {
   return `
     ${announceHtml()}
     <h1>試合終了</h1>
+    <button type="button" class="btn ghost" id="open-rules" style="margin-bottom:12px">📖 遊び方</button>
     <div class="panel">
       <div class="section-title">今回の飲酒</div>
       ${
@@ -756,7 +877,8 @@ function renderResult() {
 }
 
 function render() {
-  if (ui.view === "home") app.innerHTML = renderHome();
+  if (ui.view === "rules") app.innerHTML = renderRules();
+  else if (ui.view === "home") app.innerHTML = renderHome();
   else if (ui.view === "lobby") app.innerHTML = renderLobby();
   else if (ui.state?.phase === "result") app.innerHTML = renderResult();
   else app.innerHTML = renderPlaying();
@@ -797,6 +919,23 @@ async function tryPlay(extra = {}) {
 }
 
 function bind() {
+  const goRules = () => {
+    openRules(
+      ui.view === "home" ? "home" : ui.view === "lobby" ? "lobby" : "game"
+    );
+  };
+  app.querySelector("#open-rules")?.addEventListener("click", goRules);
+  const backRules = () => {
+    if (ui.rulesBack === "lobby" && ui.state?.phase === "lobby") ui.view = "lobby";
+    else if (ui.rulesBack === "game" && ui.state) ui.view = "game";
+    else if (ui.state?.phase === "lobby") ui.view = "lobby";
+    else if (ui.state) ui.view = "game";
+    else ui.view = "home";
+    render();
+  };
+  app.querySelector("#rules-back")?.addEventListener("click", backRules);
+  app.querySelector("#rules-back-bottom")?.addEventListener("click", backRules);
+
   app.querySelector("#name")?.addEventListener("input", (e) => {
     ui.name = e.target.value;
   });

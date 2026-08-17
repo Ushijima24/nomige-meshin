@@ -242,6 +242,17 @@ function renderHome() {
         <button class="btn btn-secondary" id="btn-join" ${ui.busy ? "disabled" : ""}>ルームに入る</button>
       </div>
     </div>
+    <div class="panel" style="margin-top:14px">
+      <p class="lbl" style="color:var(--accent);font-size:0.85rem;font-weight:800;margin:0 0 8px">遊び方</p>
+      <ol style="margin:0;padding-left:1.2em;line-height:1.55;font-weight:700;font-size:0.9rem;color:var(--text)">
+        <li>写真の一部が隠されたお題が出る</li>
+        <li>各自が「何か」を答えとして入力する</li>
+        <li>主催者が同じ答え同士をグループにまとめる</li>
+        <li>一番人数が少ないグループ（少数派）が罰杯</li>
+        <li>全員一致なら誰も飲まないことも</li>
+      </ol>
+      <p style="margin:10px 0 0;font-size:0.8rem;font-weight:700;color:var(--muted);line-height:1.45">ダミー参加者を足して人数を増やせます。別アプリを開いても同じブラウザなら戻ってこれます。</p>
+    </div>
   </div>`;
 }
 
