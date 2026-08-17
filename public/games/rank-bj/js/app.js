@@ -132,6 +132,7 @@ window.addEventListener("pageshow", () => {
 });
 
 socket.on("state", (state) => {
+  const prevStep = ui.state?.playStep;
   ui.state = state;
   ui.error = "";
   if (ui.view !== "rules") {
@@ -145,6 +146,10 @@ socket.on("state", (state) => {
     ui.gmPendingId = state.pending?.playerId;
   }
   if (!state.topicLoading) ui.pickingTitle = "";
+  if (state.playStep === "pick_topic" && prevStep !== "pick_topic") {
+    ui.searchQ = "";
+    ui.searching = false;
+  }
   render();
 });
 
@@ -781,8 +786,12 @@ app.addEventListener("click", (e) => {
   }
   if (t.dataset.pick) {
     ui.pickingTitle = t.querySelector(".ttl")?.textContent || "";
-    return emit("pick_topic", { slug: t.dataset.pick }).finally(() => {
+    return emit("pick_topic", { slug: t.dataset.pick }).then((res) => {
       ui.pickingTitle = "";
+      if (res?.ok) {
+        ui.searchQ = "";
+        ui.searching = false;
+      }
     });
   }
   if (t.id === "submit-answer") {
