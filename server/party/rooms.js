@@ -41,6 +41,14 @@ export const PARTY_GAMES = [
     minPlayers: 3,
     recommend: "4〜6人",
   },
+  {
+    id: "unmei",
+    title: "運命の人ゲーム",
+    path: "/games/unmei/",
+    desc: "一緒に〇〇する相手を指名。両思いなら成立、残った人が飲む。",
+    minPlayers: 5,
+    recommend: "6〜10人",
+  },
 ];
 
 /** @type {Map<string, PartyRoom>} */

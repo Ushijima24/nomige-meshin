@@ -392,6 +392,15 @@ function renderLobby() {
   const isHost = s.you?.isHost;
   return `
   <div class="screen">
+    <p style="margin:0 0 8px">${
+      isHost
+        ? `<button type="button" class="btn-link" id="btn-party" ${ui.busy ? "disabled" : ""} style="background:none;border:none;color:var(--accent-2);font-weight:800;font-size:0.85rem;padding:0;cursor:pointer">← ゲーム選択に戻る</button>`
+        : `<a href="${
+            hasPartySession()
+              ? partyHomeUrl()
+              : "/"
+          }" style="color:var(--accent-2);font-weight:800;text-decoration:none;font-size:0.85rem">← ゲーム選択に戻る</a>`
+    }</p>
     <div class="brand">
       <div class="app-name">飲みゲーパーティー</div>
       <div class="logo"><span>画像で全員一致</span></div>
@@ -401,8 +410,7 @@ function renderLobby() {
         isHost
           ? `<button class="btn btn-primary" id="btn-start" ${
               s.players.length < 2 || ui.busy ? "disabled" : ""
-            }>ゲーム開始</button>
-             <button class="btn btn-ghost" id="btn-party" ${ui.busy ? "disabled" : ""}>ゲーム選択に戻る</button>`
+            }>ゲーム開始</button>`
           : `<p class="wait">主催者の開始待ち…</p>
              ${
                hasPartySession()

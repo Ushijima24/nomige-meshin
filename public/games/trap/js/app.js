@@ -405,16 +405,18 @@ function renderLobby() {
   const s = ui.state;
   const tab = ui.rulesTab === "cards" ? "cards" : "howto";
   return `
+    ${
+      s.isHost
+        ? `<button type="button" class="back linkish" id="back-party-lobby" ${ui.busy ? "disabled" : ""}>← ゲーム選択に戻る</button>`
+        : backLinkHtml()
+    }
     <h1>トラップゲーム</h1>
     <div class="lobby-actions">
       ${
         s.isHost
           ? `<button class="btn" id="start" ${
               ui.busy || s.players.length < 2 ? "disabled" : ""
-            }>ゲーム開始</button>
-             <button class="btn ghost" id="back-party-lobby" ${
-               ui.busy ? "disabled" : ""
-             }>ゲーム選択に戻る</button>`
+            }>ゲーム開始</button>`
           : `<p class="sub">主催者の開始待ち…</p>
              ${
                hasPartySession()

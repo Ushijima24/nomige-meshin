@@ -349,12 +349,20 @@ function renderJoining() {
 function renderLobby() {
   const s = ui.state;
   return `
+    ${
+      s.isHost
+        ? `<button type="button" class="back linkish" id="back-party" ${ui.busy ? "disabled" : ""}>← ゲーム選択に戻る</button>`
+        : `<a class="back" href="${
+            hasPartySession()
+              ? partyHomeUrl(loadPartySession()?.code || ui.state?.code)
+              : "/"
+          }">← ゲーム選択に戻る</a>`
+    }
     <h1>ランキングBJ</h1>
     <div class="lobby-actions">
       ${
         s.isHost
-          ? `<button class="btn" id="start" ${ui.busy || s.players.length < 2 ? "disabled" : ""}>ゲーム開始</button>
-             <button class="btn ghost" id="back-party" ${ui.busy ? "disabled" : ""}>ゲーム選択に戻る</button>`
+          ? `<button class="btn" id="start" ${ui.busy || s.players.length < 2 ? "disabled" : ""}>ゲーム開始</button>`
           : `<p class="sub">GMの開始待ち…</p>
              ${hasPartySession() ? `<p class="sub">主催者がゲーム選択に戻すまで待ってね</p>` : ""}`
       }

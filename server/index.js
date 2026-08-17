@@ -38,6 +38,7 @@ import * as trap from "./games/trap/rooms.js";
 import { CARD_LIST, RANK_RATES, cardLabel } from "./games/trap/cards.js";
 import * as rankBj from "./games/rank-bj/rooms.js";
 import * as seikaiJinrou from "./games/seikai-jinrou/rooms.js";
+import * as unmei from "./games/unmei/rooms.js";
 import * as party from "./party/rooms.js";
 import { warmupReadings } from "./games/rank-bj/readings.js";
 
@@ -1353,6 +1354,338 @@ io.of("/seikai-jinrou").on("connection", (socket) => {
   });
 });
 
+/** ---- 運命の人ゲーム (/unmei) ---- */
+const unmeiSessions = new Map();
+
+function emitUnmei(room) {
+  if (!room) return;
+  for (const [sid, sess] of unmeiSessions) {
+    if (sess.roomCode !== room.code) continue;
+    const sock = io.of("/unmei").sockets.get(sid);
+    if (sock) sock.emit("state", unmei.publicState(room, sess.playerId));
+  }
+}
+
+const unmeiGrace = createGraceTracker(
+  unmeiSessions,
+  (c) => unmei.getRoom(c),
+  (room, id) => unmei.leaveRoom(room, id),
+  emitUnmei
+);
+
+function kickUnmeiBots(room) {
+  if (!room || room._unmeiBotKick) return;
+  const ids = unmei.listBotsNeedingPick(room);
+  if (!ids.length) return;
+  room._unmeiBotKick = true;
+  ids.forEach((botId, i) => {
+    setTimeout(() => {
+      if (room.phase !== "choosing") {
+        if (i === ids.length - 1) room._unmeiBotKick = false;
+        return;
+      }
+      unmei.pickAsBot(room, botId);
+      emitUnmei(room);
+      if (i === ids.length - 1) {
+        room._unmeiBotKick = false;
+        kickUnmeiBots(room);
+      }
+    }, 400 + i * 280 + Math.floor(Math.random() * 250));
+  });
+}
+
+function bindUnmei(socket, roomCode, playerId) {
+  unmeiSessions.set(socket.id, { roomCode, playerId });
+  socket.join(roomCode);
+  unmeiGrace.cancel(roomCode, playerId);
+}
+
+io.of("/unmei").on("connection", (socket) => {
+  socket.on("create_room", ({ name, avatar }, cb) => {
+    try {
+      const { room, playerId } = unmei.createRoom(name, avatar);
+      bindUnmei(socket, room.code, playerId);
+      cb?.({ ok: true, playerId, code: room.code });
+      emitUnmei(room);
+    } catch (e) {
+      cb?.({ ok: false, error: e.message || "作成失敗" });
+    }
+  });
+
+  socket.on("join_room", ({ code, name, avatar }, cb) => {
+    try {
+      const result = unmei.joinRoom(code, name, avatar);
+      if (result.error) return cb?.({ ok: false, error: result.error });
+      bindUnmei(socket, result.room.code, result.playerId);
+      cb?.({ ok: true, playerId: result.playerId, code: result.room.code });
+      emitUnmei(result.room);
+    } catch (e) {
+      cb?.({ ok: false, error: e.message || "参加失敗" });
+    }
+  });
+
+  socket.on("rejoin", ({ code, playerId }, cb) => {
+    try {
+      const result = unmei.rejoinRoom(code, playerId);
+      if (result.error) return cb?.({ ok: false, error: result.error });
+      bindUnmei(socket, result.room.code, result.playerId);
+      unmei.setConnected(result.room, result.playerId, true);
+      cb?.({ ok: true, playerId: result.playerId, code: result.room.code });
+      emitUnmei(result.room);
+    } catch (e) {
+      cb?.({ ok: false, error: e.message || "復帰失敗" });
+    }
+  });
+
+  socket.on("kick_player", ({ playerId }, cb) => {
+    const sess = unmeiSessions.get(socket.id);
+    if (!sess) return cb?.({ ok: false, error: "未参加" });
+    const room = unmei.getRoom(sess.roomCode);
+    if (!room) return cb?.({ ok: false, error: "ルームなし" });
+    const result = unmei.kickFromLobby(room, sess.playerId, playerId);
+    if (result.error) return cb?.({ ok: false, error: result.error });
+    notifyKicked(
+      (sid) => io.of("/unmei").sockets.get(sid),
+      unmeiSessions,
+      room.code,
+      result.kickedId,
+      `${result.kickedName} は部屋から外されました`
+    );
+    unmeiGrace.cancel(room.code, result.kickedId);
+    cb?.({ ok: true });
+    emitUnmei(room);
+  });
+
+  socket.on("leave_room", (_data, cb) => {
+    const sess = unmeiSessions.get(socket.id);
+    if (!sess) return cb?.({ ok: true });
+    unmeiSessions.delete(socket.id);
+    socket.leave(sess.roomCode);
+    unmeiGrace.cancel(sess.roomCode, sess.playerId);
+    const room = unmei.getRoom(sess.roomCode);
+    if (room) {
+      const updated = unmei.leaveRoom(room, sess.playerId);
+      if (updated) emitUnmei(updated);
+    }
+    cb?.({ ok: true });
+  });
+
+  socket.on("add_bot", (_data, cb) => {
+    const sess = unmeiSessions.get(socket.id);
+    if (!sess) return cb?.({ ok: false, error: "未参加" });
+    const room = unmei.getRoom(sess.roomCode);
+    if (!room) return cb?.({ ok: false, error: "ルームなし" });
+    const result = unmei.addBot(room, sess.playerId);
+    if (result.error) return cb?.({ ok: false, error: result.error });
+    cb?.({ ok: true });
+    emitUnmei(room);
+  });
+
+  socket.on("remove_bot", ({ botId }, cb) => {
+    const sess = unmeiSessions.get(socket.id);
+    if (!sess) return cb?.({ ok: false, error: "未参加" });
+    const room = unmei.getRoom(sess.roomCode);
+    if (!room) return cb?.({ ok: false, error: "ルームなし" });
+    const result = unmei.removeBot(room, sess.playerId, botId);
+    if (result.error) return cb?.({ ok: false, error: result.error });
+    cb?.({ ok: true });
+    emitUnmei(room);
+  });
+
+  socket.on("set_mode", ({ mode }, cb) => {
+    const sess = unmeiSessions.get(socket.id);
+    if (!sess) return cb?.({ ok: false, error: "未参加" });
+    const room = unmei.getRoom(sess.roomCode);
+    if (!room) return cb?.({ ok: false, error: "ルームなし" });
+    const result = unmei.setMode(room, sess.playerId, mode);
+    if (result.error) return cb?.({ ok: false, error: result.error });
+    cb?.({ ok: true });
+    emitUnmei(room);
+  });
+
+  socket.on("set_reveal_style", ({ style }, cb) => {
+    const sess = unmeiSessions.get(socket.id);
+    if (!sess) return cb?.({ ok: false, error: "未参加" });
+    const room = unmei.getRoom(sess.roomCode);
+    if (!room) return cb?.({ ok: false, error: "ルームなし" });
+    const result = unmei.setRevealStyle(room, sess.playerId, style);
+    if (result.error) return cb?.({ ok: false, error: result.error });
+    cb?.({ ok: true });
+    emitUnmei(room);
+  });
+
+  socket.on("set_gender", ({ gender, targetId }, cb) => {
+    const sess = unmeiSessions.get(socket.id);
+    if (!sess) return cb?.({ ok: false, error: "未参加" });
+    const room = unmei.getRoom(sess.roomCode);
+    if (!room) return cb?.({ ok: false, error: "ルームなし" });
+    const result = unmei.setGender(room, sess.playerId, gender, targetId);
+    if (result.error) return cb?.({ ok: false, error: result.error });
+    cb?.({ ok: true });
+    emitUnmei(room);
+  });
+
+  socket.on("start_game", (_data, cb) => {
+    const sess = unmeiSessions.get(socket.id);
+    if (!sess) return cb?.({ ok: false, error: "未参加" });
+    const room = unmei.getRoom(sess.roomCode);
+    if (!room) return cb?.({ ok: false, error: "ルームなし" });
+    const result = unmei.startGame(room, sess.playerId);
+    if (result.error) return cb?.({ ok: false, error: result.error });
+    cb?.({ ok: true });
+    emitUnmei(room);
+  });
+
+  socket.on("pick_topic", ({ topicId }, cb) => {
+    const sess = unmeiSessions.get(socket.id);
+    if (!sess) return cb?.({ ok: false, error: "未参加" });
+    const room = unmei.getRoom(sess.roomCode);
+    if (!room) return cb?.({ ok: false, error: "ルームなし" });
+    const result = unmei.pickTopic(room, sess.playerId, topicId);
+    if (result.error) return cb?.({ ok: false, error: result.error });
+    cb?.({ ok: true });
+    emitUnmei(room);
+    kickUnmeiBots(room);
+  });
+
+  socket.on("refresh_topics", (_data, cb) => {
+    const sess = unmeiSessions.get(socket.id);
+    if (!sess) return cb?.({ ok: false, error: "未参加" });
+    const room = unmei.getRoom(sess.roomCode);
+    if (!room) return cb?.({ ok: false, error: "ルームなし" });
+    const result = unmei.refreshTopics(room, sess.playerId);
+    if (result.error) return cb?.({ ok: false, error: result.error });
+    cb?.({ ok: true });
+    emitUnmei(room);
+  });
+
+  socket.on("pick_custom_topic", ({ text }, cb) => {
+    const sess = unmeiSessions.get(socket.id);
+    if (!sess) return cb?.({ ok: false, error: "未参加" });
+    const room = unmei.getRoom(sess.roomCode);
+    if (!room) return cb?.({ ok: false, error: "ルームなし" });
+    const result = unmei.pickCustomTopic(room, sess.playerId, text);
+    if (result.error) return cb?.({ ok: false, error: result.error });
+    cb?.({ ok: true });
+    emitUnmei(room);
+    kickUnmeiBots(room);
+  });
+
+  socket.on("submit_pick", ({ targetId }, cb) => {
+    const sess = unmeiSessions.get(socket.id);
+    if (!sess) return cb?.({ ok: false, error: "未参加" });
+    const room = unmei.getRoom(sess.roomCode);
+    if (!room) return cb?.({ ok: false, error: "ルームなし" });
+    const result = unmei.submitPick(room, sess.playerId, targetId);
+    if (result.error) return cb?.({ ok: false, error: result.error });
+    cb?.({ ok: true });
+    emitUnmei(room);
+  });
+
+  socket.on("host_pick_for", ({ playerId }, cb) => {
+    const sess = unmeiSessions.get(socket.id);
+    if (!sess) return cb?.({ ok: false, error: "未参加" });
+    const room = unmei.getRoom(sess.roomCode);
+    if (!room) return cb?.({ ok: false, error: "ルームなし" });
+    const result = unmei.hostPickFor(room, sess.playerId, playerId);
+    if (result.error) return cb?.({ ok: false, error: result.error });
+    cb?.({ ok: true });
+    emitUnmei(room);
+    kickUnmeiBots(room);
+  });
+
+  socket.on("reveal_one", ({ playerId }, cb) => {
+    const sess = unmeiSessions.get(socket.id);
+    if (!sess) return cb?.({ ok: false, error: "未参加" });
+    const room = unmei.getRoom(sess.roomCode);
+    if (!room) return cb?.({ ok: false, error: "ルームなし" });
+    const result = unmei.revealOne(room, sess.playerId, playerId);
+    if (result.error) return cb?.({ ok: false, error: result.error });
+    cb?.({ ok: true });
+    emitUnmei(room);
+  });
+
+  socket.on("reveal_all", (_data, cb) => {
+    const sess = unmeiSessions.get(socket.id);
+    if (!sess) return cb?.({ ok: false, error: "未参加" });
+    const room = unmei.getRoom(sess.roomCode);
+    if (!room) return cb?.({ ok: false, error: "ルームなし" });
+    const result = unmei.revealAll(room, sess.playerId);
+    if (result.error) return cb?.({ ok: false, error: result.error });
+    cb?.({ ok: true });
+    emitUnmei(room);
+  });
+
+  socket.on("finish_reveal", (_data, cb) => {
+    const sess = unmeiSessions.get(socket.id);
+    if (!sess) return cb?.({ ok: false, error: "未参加" });
+    const room = unmei.getRoom(sess.roomCode);
+    if (!room) return cb?.({ ok: false, error: "ルームなし" });
+    const result = unmei.finishReveal(room, sess.playerId);
+    if (result.error) return cb?.({ ok: false, error: result.error });
+    cb?.({ ok: true });
+    emitUnmei(room);
+  });
+
+  socket.on("next_round", (_data, cb) => {
+    const sess = unmeiSessions.get(socket.id);
+    if (!sess) return cb?.({ ok: false, error: "未参加" });
+    const room = unmei.getRoom(sess.roomCode);
+    if (!room) return cb?.({ ok: false, error: "ルームなし" });
+    const result = unmei.nextRound(room, sess.playerId);
+    if (result.error) return cb?.({ ok: false, error: result.error });
+    cb?.({ ok: true });
+    emitUnmei(room);
+    kickUnmeiBots(room);
+  });
+
+  socket.on("back_to_topic", (_data, cb) => {
+    const sess = unmeiSessions.get(socket.id);
+    if (!sess) return cb?.({ ok: false, error: "未参加" });
+    const room = unmei.getRoom(sess.roomCode);
+    if (!room) return cb?.({ ok: false, error: "ルームなし" });
+    const result = unmei.backToPickTopic(room, sess.playerId);
+    if (result.error) return cb?.({ ok: false, error: result.error });
+    cb?.({ ok: true });
+    emitUnmei(room);
+  });
+
+  socket.on("back_to_lobby", (_data, cb) => {
+    const sess = unmeiSessions.get(socket.id);
+    if (!sess) return cb?.({ ok: false, error: "未参加" });
+    const room = unmei.getRoom(sess.roomCode);
+    if (!room) return cb?.({ ok: false, error: "ルームなし" });
+    if (room.partyOwned) {
+      return handleGameBackToParty(sess.roomCode, sess.playerId, cb);
+    }
+    const result = unmei.backToLobby(room, sess.playerId);
+    if (result.error) return cb?.({ ok: false, error: result.error });
+    cb?.({ ok: true });
+    emitUnmei(room);
+  });
+
+  socket.on("back_to_party", (_data, cb) => {
+    const sess = unmeiSessions.get(socket.id);
+    if (!sess) return cb?.({ ok: false, error: "未参加" });
+    handleGameBackToParty(sess.roomCode, sess.playerId, cb);
+  });
+
+  socket.on("disconnect", () => {
+    const sess = unmeiSessions.get(socket.id);
+    if (!sess) return;
+    unmeiSessions.delete(socket.id);
+    const stillHere = [...unmeiSessions.values()].some(
+      (s) => s.roomCode === sess.roomCode && s.playerId === sess.playerId
+    );
+    if (stillHere) return;
+    const room = unmei.getRoom(sess.roomCode);
+    if (!room) return;
+    unmei.setConnected(room, sess.playerId, false);
+    emitUnmei(room);
+    unmeiGrace.schedule(sess.roomCode, sess.playerId);
+  });
+});
+
 /** ---- パーティー (/party) 共通ロビー ---- */
 const partySessions = new Map();
 
@@ -1400,6 +1733,9 @@ function syncDrinksFromGame(partyRoom, gameId) {
   } else if (gameId === "seikai-jinrou") {
     const g = seikaiJinrou.getRoom(partyRoom.code);
     if (g) totals = seikaiJinrou.exportDrinkTotals(g);
+  } else if (gameId === "unmei") {
+    const g = unmei.getRoom(partyRoom.code);
+    if (g) totals = unmei.exportDrinkTotals(g);
   }
   if (totals) party.applyDrinkTotals(partyRoom, totals);
 }
@@ -1409,6 +1745,7 @@ function destroyGameRoom(code, gameId) {
   else if (gameId === "image-match") destroyImageMatchRoom(code);
   else if (gameId === "rank-bj") rankBj.destroyRoom(code);
   else if (gameId === "seikai-jinrou") seikaiJinrou.destroyRoom(code);
+  else if (gameId === "unmei") unmei.destroyRoom(code);
 }
 
 function notifyEnterGame(partyRoom, gameMeta) {
@@ -1430,6 +1767,7 @@ function notifyGoParty(code) {
     [sessions, io],
     [rankBjSessions, io.of("/rank-bj")],
     [seikaiSessions, io.of("/seikai-jinrou")],
+    [unmeiSessions, io.of("/unmei")],
   ];
   for (const [sessMap, nsp] of payloads) {
     for (const [sid, sess] of sessMap) {
@@ -1498,7 +1836,8 @@ io.of("/party").on("connection", (socket) => {
           (result.room.currentGame === "image-match" && getRoom(result.room.code)) ||
           (result.room.currentGame === "rank-bj" && rankBj.getRoom(result.room.code)) ||
           (result.room.currentGame === "seikai-jinrou" &&
-            seikaiJinrou.getRoom(result.room.code));
+            seikaiJinrou.getRoom(result.room.code)) ||
+          (result.room.currentGame === "unmei" && unmei.getRoom(result.room.code));
         if (!gameExists) {
           party.clearGame(result.room);
           emitParty(result.room);
@@ -1581,6 +1920,9 @@ io.of("/party").on("connection", (socket) => {
     } else if (room.currentGame === "seikai-jinrou") {
       const g = seikaiJinrou.getRoom(room.code);
       if (g) seikaiJinrou.resetDrinkTotals(g);
+    } else if (room.currentGame === "unmei") {
+      const g = unmei.getRoom(room.code);
+      if (g) unmei.resetDrinkTotals(g);
     }
     cb?.({ ok: true });
     emitParty(room);
@@ -1597,6 +1939,9 @@ io.of("/party").on("connection", (socket) => {
     if (gameId === "seikai-jinrou" && room.players.size < 3) {
       return cb?.({ ok: false, error: "それ正解人狼は3人以上必要です" });
     }
+    if (gameId === "unmei" && room.players.size < 3) {
+      return cb?.({ ok: false, error: "運命の人ゲームは5人以上必要です" });
+    }
 
     const meta = party.PARTY_GAMES.find((g) => g.id === gameId);
     if (!meta || meta.hidden) return cb?.({ ok: false, error: "不明なゲーム" });
@@ -1607,6 +1952,7 @@ io.of("/party").on("connection", (socket) => {
     else if (gameId === "image-match") spawned = createImageFromParty(snap);
     else if (gameId === "rank-bj") spawned = rankBj.createFromParty(snap);
     else if (gameId === "seikai-jinrou") spawned = seikaiJinrou.createFromParty(snap);
+    else if (gameId === "unmei") spawned = unmei.createFromParty(snap);
     else return cb?.({ ok: false, error: "不明なゲーム" });
 
     if (spawned?.error) return cb?.({ ok: false, error: spawned.error });
@@ -1648,5 +1994,6 @@ httpServer.listen(PORT, "0.0.0.0", () => {
   console.log(`トラップゲーム     http://localhost:${PORT}/games/trap/`);
   console.log(`ランキングBJ       http://localhost:${PORT}/games/rank-bj/`);
   console.log(`それ正解人狼       http://localhost:${PORT}/games/seikai-jinrou/`);
+  console.log(`運命の人ゲーム     http://localhost:${PORT}/games/unmei/`);
   warmupReadings();
 });

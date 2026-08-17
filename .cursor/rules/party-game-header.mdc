@@ -1,0 +1,21 @@
+---
+description: 飲みゲーの画面上部に「ゲーム選択に戻る」を置く共通UI
+globs: public/games/**/*.{js,html,css}
+alwaysApply: true
+---
+
+# ゲーム画面の共通ヘッダー
+
+新しいゲームを足すとき、**ゲーム選択に戻る** は大きなボタンにせず、画面いちばん上のテキストリンクにする。
+
+```html
+<div class="screen-head">
+  <button type="button" class="linkish">← ゲーム選択に戻る</button>
+  <button type="button" class="linkish">📖 遊び方</button>
+</div>
+```
+
+- 左上: `← ゲーム選択に戻る`（主催者は `back_to_party`、それ以外はパーティーURLへ）
+- 右上: 遊び方があるゲームは `📖 遊び方`
+- ロビーの「ゲーム開始」の下に、同じ「ゲーム選択に戻る」を重ねない
+- 既存ゲーム（運命の人、それ正解人狼、ランキングBJ、トラップ、画像で全員一致）もこの形に揃える

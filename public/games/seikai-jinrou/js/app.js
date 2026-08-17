@@ -289,12 +289,12 @@ function renderLobby() {
   const s = ui.state;
   const isHost = s.you?.isHost;
   return `
+    ${screenHeadHtml()}
     <h1>朝までそれ正解人狼</h1>
     <div class="lobby-actions">
       ${
         isHost
-          ? `<button class="btn" id="btn-start" ${s.players.length < 3 || ui.busy ? "disabled" : ""}>ゲーム開始（3人〜）</button>
-             <button class="btn ghost" id="btn-party" ${ui.busy ? "disabled" : ""}>ゲーム選択に戻る</button>`
+          ? `<button class="btn" id="btn-start" ${s.players.length < 3 || ui.busy ? "disabled" : ""}>ゲーム開始（3人〜）</button>`
           : `<p class="wait">主催者の開始待ち…</p>
              ${hasPartySession() ? `<p class="sub" style="margin:0;text-align:center">主催者がゲーム選択に戻すまで待ってね</p>` : ""}`
       }
@@ -613,8 +613,8 @@ function renderResult() {
         )
         .join("")}</div>`
     : `<p class="wait">飲む人なし</p>`;
-  const baTally = voteTallyHtml("ベストアンサー投票の内訳", s.baVoteTally, {
-    hostPick: !!s.baVoteByHost,
+  const wolfTally = voteTallyHtml("人狼投票の内訳", s.wolfVoteTally, {
+    skipped: s.resultKind === "wolf_ba" && !(s.wolfVoteTally || []).length,
   });
   return `
     ${screenHeadHtml()}
@@ -626,7 +626,7 @@ function renderResult() {
       <p class="sub" style="margin:0 0 8px">人狼は ${s.wolf?.avatar || ""} ${escapeHtml(s.wolf?.name || "?")}</p>
       <p class="sub" style="margin:0 0 8px">ベストアンサー「${escapeHtml(s.bestAnswer?.label || "")}」</p>
       ${s.accused ? `<p class="sub" style="margin:0 0 12px">人狼指名 ${s.accused.avatar} ${escapeHtml(s.accused.name)}</p>` : ""}
-      ${baTally}
+      ${wolfTally}
       ${drinks}
       ${drinkBoardHtml(s.drinkBoard)}
       ${ui.error ? `<div class="error">${escapeHtml(ui.error)}</div>` : ""}
