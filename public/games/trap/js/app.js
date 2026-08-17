@@ -343,6 +343,14 @@ function renderRulesTabs() {
   </div>`;
 }
 
+/** 試合中など：押すと説明画面の該当タブを開く */
+function renderRulesOpenTabs() {
+  return `<div class="rules-tabs" style="margin-bottom:12px">
+    <button type="button" class="rules-tab" data-open-rules="howto">遊び方</button>
+    <button type="button" class="rules-tab" data-open-rules="cards">カード一覧</button>
+  </div>`;
+}
+
 function renderHowtoTab() {
   return `
     <p class="sub">はじめてでもわかるトラップゲームの説明です。</p>
@@ -786,7 +794,7 @@ function renderPlaying() {
   return `
     ${announceHtml()}
     <h1>試合 ${s.matchNumber}</h1>
-    <button type="button" class="btn ghost" id="open-rules" style="margin-bottom:12px">📖 遊び方</button>
+    ${renderRulesOpenTabs()}
     <div class="hud">
       <div class="stat"><div class="k">飲む量</div><div class="v">×${s.amount}</div></div>
       <div class="stat"><div class="k">酒の場所</div><div class="v" style="font-size:1rem">${escapeHtml(
@@ -833,7 +841,7 @@ function renderResult() {
   return `
     ${announceHtml()}
     <h1>試合終了</h1>
-    <button type="button" class="btn ghost" id="open-rules" style="margin-bottom:12px">📖 遊び方</button>
+    ${renderRulesOpenTabs()}
     <div class="panel">
       <div class="section-title">今回の飲酒</div>
       ${
@@ -955,6 +963,14 @@ function bind() {
     );
   };
   app.querySelector("#open-rules")?.addEventListener("click", goRules);
+  app.querySelectorAll("[data-open-rules]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      openRules(
+        "game",
+        btn.getAttribute("data-open-rules") === "cards" ? "cards" : "howto"
+      );
+    });
+  });
   app.querySelectorAll("[data-rules-tab]").forEach((btn) => {
     btn.addEventListener("click", () => {
       ui.rulesTab = btn.getAttribute("data-rules-tab") === "cards" ? "cards" : "howto";
