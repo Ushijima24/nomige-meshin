@@ -75,6 +75,8 @@ function blankRoomFields() {
     drinks: [],
     resultKind: "",
     customDraft: "",
+    anonHiddenIds: [],
+    anonReport: null,
   };
 }
 
@@ -320,6 +322,8 @@ function resetRoundPlay(room) {
   room.drinks = [];
   room.resultKind = "";
   room.customDraft = "";
+  room.anonHiddenIds = [];
+  room.anonReport = null;
 }
 
 function beginPickTopic(room) {
@@ -419,11 +423,26 @@ function revealableIds(room) {
   return room.activeIds.filter((id) => room.picks.has(id));
 }
 
+function hiddenSet(room) {
+  return new Set(room.anonHiddenIds || []);
+}
+
+function handledRevealIds(room) {
+  return new Set([...(room.revealedIds || []), ...(room.anonHiddenIds || [])]);
+}
+
+function pendingRevealIds(room) {
+  const handled = handledRevealIds(room);
+  return revealableIds(room).filter((id) => !handled.has(id));
+}
+
 function startReveal(room) {
   room.phase = "reveal";
   room.revealedIds = [];
   room.revealSeq = 0;
   room.lastReveal = null;
+  room.anonHiddenIds = [];
+  room.anonReport = null;
 }
 
 function maybeStartReveal(room) {
@@ -484,6 +503,7 @@ function isMutual(room, fromId) {
 function isJudged(room, fromId, revealedSet) {
   const to = room.picks.get(fromId);
   if (!to) return false;
+  if (hiddenSet(room).has(fromId) || hiddenSet(room).has(to)) return false;
   return revealedSet.has(to);
 }
 
@@ -510,6 +530,7 @@ export function revealOne(room, playerId, targetId) {
   if (playerId !== room.hostId) return { error: "主催者のみ" };
   if (room.phase !== "reveal") return { error: "開票中だけです" };
   if (!room.activeIds.includes(targetId)) return { error: "その人は開票対象ではありません" };
+  if (hiddenSet(room).has(targetId)) return { error: "その人は匿名開票済みです" };
   return pushReveal(room, targetId);
 }
 
@@ -517,7 +538,7 @@ export function revealAll(room, playerId) {
   if (playerId !== room.hostId) return { error: "主催者のみ" };
   if (room.phase !== "reveal") return { error: "開票中だけです" };
   room.revealStyle = "all";
-  const left = revealableIds(room).filter((id) => !room.revealedIds.includes(id));
+  const left = pendingRevealIds(room);
   if (!left.length) return { error: "全員開票済みです" };
   const batch = [];
   for (const id of left) {
@@ -540,6 +561,57 @@ export function revealAll(room, playerId) {
     judged: true,
     style: "all",
     batch,
+  };
+  return { ok: true, lastReveal: room.lastReveal };
+}
+
+export function anonFemaleReveal(room, playerId) {
+  if (playerId !== room.hostId) return { error: "主催者のみ" };
+  if (room.mode !== "love") return { error: "ラブモードだけです" };
+  if (room.phase !== "reveal") return { error: "開票中だけです" };
+  const handled = handledRevealIds(room);
+  const females = revealableIds(room).filter((id) => {
+    if (handled.has(id)) return false;
+    return room.players.get(id)?.gender === "female";
+  });
+  if (!females.length) return { error: "開票できる女性がいません" };
+
+  const batch = [];
+  const hidden = [];
+  for (const id of females) {
+    const toId = room.picks.get(id);
+    if (toId && isMutual(room, id)) {
+      if (!room.revealedIds.includes(id)) room.revealedIds.push(id);
+      if (!room.revealedIds.includes(toId)) room.revealedIds.push(toId);
+      room.revealSeq += 1;
+      batch.push({
+        seq: room.revealSeq,
+        fromId: id,
+        toId,
+        judged: true,
+        mutual: true,
+      });
+    } else {
+      hidden.push(id);
+    }
+  }
+  room.anonHiddenIds = [...new Set([...(room.anonHiddenIds || []), ...hidden])];
+  if (!batch.length) room.revealSeq += 1;
+  room.anonReport = {
+    matchCount: batch.length,
+    hiddenCount: (room.anonHiddenIds || []).length,
+    hiddenNames: (room.anonHiddenIds || []).map((id) => room.players.get(id)?.name || "?"),
+  };
+  room.lastReveal = {
+    seq: room.revealSeq,
+    fromId: batch[0]?.fromId || null,
+    toId: batch[0]?.toId || null,
+    mutual: batch.length ? true : null,
+    judged: true,
+    style: "anon_female",
+    batch,
+    hiddenCount: hidden.length,
+    matchCount: batch.length,
   };
   return { ok: true, lastReveal: room.lastReveal };
 }
@@ -588,7 +660,7 @@ function addDrinks(room, ids, kind) {
 export function finishReveal(room, playerId, skipLeft = false) {
   if (playerId !== room.hostId) return { error: "主催者のみ" };
   if (room.phase !== "reveal") return { error: "開票中だけです" };
-  const left = revealableIds(room).filter((id) => !room.revealedIds.includes(id));
+  const left = pendingRevealIds(room);
   if (left.length && !skipLeft) return { error: "まだ開票していない人がいます" };
 
   const { pairs, matched } = findMutualPairs(room);
@@ -632,6 +704,8 @@ export function nextRound(room, playerId) {
   room.drinks = [];
   room.resultKind = "";
   room.topicChoices = [];
+  room.anonHiddenIds = [];
+  room.anonReport = null;
   beginChoosing(room, topic);
   return { ok: true };
 }
@@ -705,9 +779,9 @@ function seatLayout(room) {
       seats.push({
         id: p.id,
         side: "left",
-        x: 11,
+        x: 16,
         y,
-        portX: 22,
+        portX: 30,
         portY: y,
       });
     });
@@ -716,9 +790,9 @@ function seatLayout(room) {
       seats.push({
         id: p.id,
         side: "right",
-        x: 89,
+        x: 84,
         y,
-        portX: 78,
+        portX: 70,
         portY: y,
       });
     });
@@ -765,12 +839,15 @@ export function publicState(room, viewerId) {
   }));
 
   const myPick = room.picks.get(viewerId) || null;
+  const hidden = hiddenSet(room);
   const revealedPicks = showPicks
     ? (room.roundIds?.length ? room.roundIds : room.activeIds)
-        .filter((id) => revealedSet.has(id) && room.picks.has(id))
+        .filter((id) => revealedSet.has(id) && room.picks.has(id) && !hidden.has(id))
         .map((id) => {
           const to = room.picks.get(id);
-          const judged = room.phase !== "reveal" || isJudged(room, id, revealedSet);
+          const judged =
+            !hidden.has(to) &&
+            (room.phase !== "reveal" || isJudged(room, id, revealedSet));
           return {
             fromId: id,
             toId: to,
@@ -783,7 +860,6 @@ export function publicState(room, viewerId) {
     room.phase === "choosing"
       ? activeAll(room).filter((p) => !room.picks.has(p.id)).map((p) => publicPerson(room, p.id))
       : [];
-  const revealable = revealableIds(room);
 
   const drinkBoard = playerList(room)
     .map((p) => ({
@@ -832,17 +908,25 @@ export function publicState(room, viewerId) {
     pickedCount: activeAll(room).filter((p) => room.picks.has(p.id)).length,
     expectedCount:
       room.phase === "reveal" || room.phase === "result" || room.phase === "gameover"
-        ? revealable.length
+        ? revealableIds(room).length
         : activeAll(room).length,
+    remainingReveal: pendingRevealIds(room).length,
     canClosePicks:
       isHost &&
       room.phase === "choosing" &&
       room.picks.size >= 2 &&
       waitingPick.length > 0,
-    canSkipReveal:
+    canSkipReveal: isHost && room.phase === "reveal" && pendingRevealIds(room).length > 0,
+    canAnonFemale:
       isHost &&
+      room.mode === "love" &&
       room.phase === "reveal" &&
-      revealable.some((id) => !revealedSet.has(id)),
+      revealableIds(room).some(
+        (id) =>
+          room.players.get(id)?.gender === "female" && !handledRevealIds(room).has(id)
+      ),
+    anonHiddenIds: [...(room.anonHiddenIds || [])],
+    anonReport: isHost ? room.anonReport : null,
     revealedIds: [...room.revealedIds],
     lastReveal: room.phase === "reveal" ? room.lastReveal : null,
     revealedPicks,

@@ -50,6 +50,7 @@ const ui = {
   drawnBatchSeq: 0,
   stampedFrom: new Set(),
   stampedPairs: new Set(),
+  stampSpots: [],
 };
 
 const params = new URLSearchParams(location.search);
@@ -173,11 +174,26 @@ socket.on("state", (state) => {
   render();
 });
 
-function emit(event, data = {}) {
+function emit(event, data = {}, opts = {}) {
+  const lock = opts.lock !== false;
   return new Promise((resolve) => {
-    ui.busy = true;
-    render();
+    if (lock) {
+      ui.busy = true;
+      render();
+    }
+    let settled = false;
+    const timer = setTimeout(() => {
+      if (settled) return;
+      settled = true;
+      ui.busy = false;
+      ui.error = ui.error || "応答がありません。もう一度押してね";
+      render();
+      resolve({ ok: false, error: ui.error });
+    }, 10000);
     socket.emit(event, data, (res) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
       ui.busy = false;
       if (res && !res.ok) ui.error = res.error || "エラー";
       render();
@@ -603,10 +619,47 @@ function pairKey(a, b) {
   return [a, b].sort().join(":");
 }
 
-function seatMidPct(fromId, toId) {
-  const a = seatOf(fromId);
-  const b = seatOf(toId);
-  return { x: (a.portX + b.portX) / 2, y: (a.portY + b.portY) / 2 };
+function stampPos(fromId, toId) {
+  let a = seatOf(fromId);
+  let b = seatOf(toId);
+  if (!a || !b) return { x: 50, y: 22 };
+  const pa = playerById(fromId);
+  if (ui.state?.mode === "love" && pa?.gender !== "female") {
+    const tmp = a;
+    a = b;
+    b = tmp;
+  }
+  const lx = b.portX - a.portX;
+  const ly = b.portY - a.portY;
+  const len = Math.hypot(lx, ly) || 1;
+  let px = -ly / len;
+  let py = lx / len;
+  const mx = (a.portX + b.portX) / 2;
+  const my = (a.portY + b.portY) / 2;
+  if (
+    Math.hypot(mx - px * 14 - 50, my - py * 14 - 50) >
+    Math.hypot(mx + px * 14 - 50, my + py * 14 - 50)
+  ) {
+    px = -px;
+    py = -py;
+  }
+  const t = ui.state?.mode === "love" ? 0.2 : 0.28;
+  let x = a.portX + lx * t + px * 11;
+  let y = a.portY + ly * t + py * 11;
+  if (ui.state?.mode === "love" && x > 36 && x < 64) {
+    x = a.portX < 50 ? 28 : 72;
+  }
+  x = Math.min(88, Math.max(12, x));
+  y = Math.min(86, Math.max(14, y));
+  const used = ui.stampSpots || [];
+  for (let n = 0; n < 12; n++) {
+    if (!used.some((u) => Math.hypot(u.x - x, u.y - y) < 16)) break;
+    y = Math.min(84, Math.max(16, y + (n % 2 === 0 ? 11 : -11)));
+    x = Math.min(86, Math.max(14, x + px * 3));
+  }
+  used.push({ x, y });
+  ui.stampSpots = used;
+  return { x, y };
 }
 
 function tryJudgeStamps() {
@@ -619,14 +672,14 @@ function tryJudgeStamps() {
       const key = pairKey(pick.fromId, pick.toId);
       if (ui.stampedPairs.has(key)) continue;
       ui.stampedPairs.add(key);
-      const mid = seatMidPct(pick.fromId, pick.toId);
-      stampAt(mid.x, mid.y, true);
+      const pos = stampPos(pick.fromId, pick.toId);
+      stampAt(pos.x, pos.y, true);
       showCenterHeart();
     } else {
       if (ui.stampedFrom.has(pick.fromId)) continue;
       ui.stampedFrom.add(pick.fromId);
-      const mid = seatMidPct(pick.fromId, pick.toId);
-      stampAt(mid.x, mid.y, false);
+      const pos = stampPos(pick.fromId, pick.toId);
+      stampAt(pos.x, pos.y, false);
     }
   }
 }
@@ -723,6 +776,7 @@ function setupArena(s) {
   ui.drawnBatchSeq = 0;
   ui.stampedFrom = new Set();
   ui.stampedPairs = new Set();
+  ui.stampSpots = [];
   syncArenaBox();
 
   for (const seat of s.seats || []) {
@@ -763,18 +817,19 @@ function setupArena(s) {
 function updatePorts(s) {
   const isHost = s.you?.isHost;
   const oneByOne = s.revealStyle === "one" && s.phase === "reveal";
+  const hidden = new Set(s.anonHiddenIds || []);
   document.querySelectorAll(".port").forEach((port) => {
     const id = port.dataset.id;
-    const done = (s.revealedIds || []).includes(id);
+    const done = (s.revealedIds || []).includes(id) || hidden.has(id);
     const can = isHost && oneByOne && !done;
     port.classList.toggle("done", done);
-    port.disabled = !can;
+    port.classList.toggle("off", !can);
     port.classList.toggle("pulse", can);
   });
   document.querySelectorAll(".seat").forEach((seat) => {
     const id = seat.dataset.id;
     if (!id) return;
-    const done = (s.revealedIds || []).includes(id);
+    const done = (s.revealedIds || []).includes(id) || hidden.has(id);
     const can = isHost && oneByOne && !done;
     seat.classList.toggle("tap", can);
     seat.classList.toggle("done", done);
@@ -789,9 +844,13 @@ function updatePorts(s) {
 function syncRevealLines(s) {
   const last = s.lastReveal;
   const animating = new Set();
-  if (last?.style === "all" && last.batch && last.seq !== ui.drawnBatchSeq) {
-    for (const ev of last.batch) animating.add(ev.fromId);
-  } else if (last && last.style !== "all" && last.fromId && !ui.drawnFrom.has(last.fromId)) {
+  const batchStyle = last?.style === "all" || last?.style === "anon_female";
+  if (batchStyle && last.batch && last.seq !== ui.drawnBatchSeq) {
+    for (const ev of last.batch) {
+      animating.add(ev.fromId);
+      if (ev.toId) animating.add(ev.toId);
+    }
+  } else if (last && last.style !== "all" && last.style !== "anon_female" && last.fromId && !ui.drawnFrom.has(last.fromId)) {
     animating.add(last.fromId);
   }
 
@@ -801,19 +860,26 @@ function syncRevealLines(s) {
     drawPickLineInstant(pick.fromId, pick.toId);
   }
 
-  if (last?.style === "all" && last.batch && last.seq !== ui.drawnBatchSeq) {
+  if (batchStyle && last.batch && last.seq !== ui.drawnBatchSeq) {
     ui.drawnBatchSeq = last.seq;
     (last.batch || []).forEach((ev, i) => {
-      if (ui.drawnFrom.has(ev.fromId)) return;
-      ui.drawnFrom.add(ev.fromId);
-      setTimeout(() => {
-        drawPickLine(ev.fromId, ev.toId);
-      }, i * 550);
+      if (!ui.drawnFrom.has(ev.fromId)) {
+        ui.drawnFrom.add(ev.fromId);
+        setTimeout(() => {
+          drawPickLine(ev.fromId, ev.toId);
+        }, i * 700);
+      }
+      if (ev.mutual && ev.toId && !ui.drawnFrom.has(ev.toId)) {
+        ui.drawnFrom.add(ev.toId);
+        setTimeout(() => {
+          drawPickLine(ev.toId, ev.fromId);
+        }, i * 700 + 320);
+      }
     });
     tryJudgeStamps();
     return;
   }
-  if (last && last.style !== "all" && last.fromId && !ui.drawnFrom.has(last.fromId)) {
+  if (last && last.style !== "all" && last.style !== "anon_female" && last.fromId && !ui.drawnFrom.has(last.fromId)) {
     ui.drawnFrom.add(last.fromId);
     drawPickLine(last.fromId, last.toId);
   }
@@ -848,12 +914,19 @@ function pairHtml(s) {
 
 function hostActionsHtml(s) {
   const isHost = s.you?.isHost;
-  const left = (s.expectedCount || 0) - (s.revealedIds || []).length;
+  const left = s.remainingReveal ?? Math.max(0, (s.expectedCount || 0) - (s.revealedIds || []).length);
   const allDone = left <= 0;
   if (!isHost) {
     return `<p class="wait">${allDone ? "結果待ち…" : s.revealStyle === "one" ? `残り ${left} 人` : ""}</p>`;
   }
   return `
+    ${
+      s.anonReport
+        ? `<p class="host-tip">GMのみ: 成立 ${s.anonReport.matchCount}組を表示。非公開 ${s.anonReport.hiddenCount}人${
+            s.anonReport.hiddenNames?.length ? `（${s.anonReport.hiddenNames.map(escapeHtml).join("、")}）` : ""
+          }</p>`
+        : ""
+    }
     ${
       allDone
         ? `<button class="btn" data-act="finish" ${ui.busy ? "disabled" : ""}>結果へ</button>`
@@ -861,7 +934,9 @@ function hostActionsHtml(s) {
            ${
              s.canSkipReveal
                ? `<button class="btn" data-act="skip-result" ${ui.busy ? "disabled" : ""}>${
-                   (s.revealedIds || []).length ? "残りをスキップして次へ" : "開票せずに次の回戦へ"
+                   (s.revealedIds || []).length || (s.anonHiddenIds || []).length
+                     ? "残りをスキップして次へ"
+                     : "開票せずに次の回戦へ"
                  }</button>`
                : ""
            }`
@@ -880,18 +955,27 @@ function renderReveal() {
     </div>
     <div class="topic">${escapeHtml(s.topic?.text || "")}</div>
     ${
-      isHost && s.phase === "reveal" && !(s.revealedIds || []).length
+      isHost && s.phase === "reveal" && !(s.revealedIds || []).length && !(s.anonHiddenIds || []).length
         ? `<div class="style-row" style="margin-bottom:10px">
             <button type="button" class="${s.revealStyle === "one" ? "on" : ""}" data-act="style" data-style="one">人を選んで開票</button>
             <button type="button" data-act="reveal-all" ${ui.busy ? "disabled" : ""}>全員一気に開票</button>
+            ${
+              s.mode === "love" && s.canAnonFemale
+                ? `<button type="button" class="on" data-act="anon-female" ${ui.busy ? "disabled" : ""}>女性匿名開票（GMのみ）</button>`
+                : ""
+            }
           </div>`
-        : ""
+        : s.canAnonFemale
+          ? `<div class="style-row" style="margin-bottom:10px">
+              <button type="button" class="on" data-act="anon-female" ${ui.busy ? "disabled" : ""}>女性匿名開票（GMのみ）</button>
+            </div>`
+          : ""
     }
     <p class="host-tip">${
       isHost
-        ? s.revealStyle === "all" || (s.revealedIds || []).length
+        ? s.revealStyle === "all" || (s.revealedIds || []).length || (s.anonHiddenIds || []).length
           ? "線の矢印が、誰に向かっているかを表します。両方の線が出てから成立／不成立が出ます"
-          : "人のアイコンか矢印ボタンを押すと、その人の線が伸びます"
+          : "人のアイコンか矢印ボタンを押すと、その人の線が伸びます。ラブモードはGMだけ「女性匿名開票」が使えます"
         : "主催者が開票しています。矢印の向きを見てね"
     }</p>
     ${arenaHtml(s)}
@@ -1017,7 +1101,9 @@ function render() {
   } else {
     updatePorts(s);
     const styleRow = app.querySelector(".style-row");
-    if (styleRow && (s.revealedIds || []).length) styleRow.remove();
+    if (styleRow && ((s.revealedIds || []).length || (s.anonHiddenIds || []).length) && !s.canAnonFemale) {
+      styleRow.remove();
+    }
     const actions = document.getElementById("host-actions");
     if (actions) {
       actions.innerHTML = `${hostActionsHtml(s)}${ui.error ? `<div class="error">${escapeHtml(ui.error)}</div>` : ""}`;
@@ -1034,7 +1120,7 @@ async function onClick(e) {
     return;
   }
   const btn = e.target.closest("[data-act]");
-  if (!btn || btn.disabled) return;
+  if (!btn || btn.disabled || btn.classList.contains("off")) return;
   const act = btn.dataset.act;
   const s = ui.state;
 
@@ -1103,8 +1189,9 @@ async function onClick(e) {
   if (act === "submit-pick") return emit("submit_pick", { targetId: ui.pickId });
   if (act === "close-picks") return emit("close_picks");
   if (act === "pick-for") return emit("host_pick_for", { playerId: btn.dataset.id });
-  if (act === "reveal-one") return emit("reveal_one", { playerId: btn.dataset.id });
+  if (act === "reveal-one") return emit("reveal_one", { playerId: btn.dataset.id }, { lock: false });
   if (act === "reveal-all") return emit("reveal_all");
+  if (act === "anon-female") return emit("anon_female_reveal");
   if (act === "back-topic") return emit("back_to_topic");
   if (act === "finish") return emit("finish_reveal");
   if (act === "skip-result") return emit("finish_reveal", { skip: true });

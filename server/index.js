@@ -1616,12 +1616,12 @@ io.of("/unmei").on("connection", (socket) => {
     emitUnmei(room);
   });
 
-  socket.on("reveal_all", (_data, cb) => {
+  socket.on("anon_female_reveal", (_data, cb) => {
     const sess = unmeiSessions.get(socket.id);
     if (!sess) return cb?.({ ok: false, error: "未参加" });
     const room = unmei.getRoom(sess.roomCode);
     if (!room) return cb?.({ ok: false, error: "ルームなし" });
-    const result = unmei.revealAll(room, sess.playerId);
+    const result = unmei.anonFemaleReveal(room, sess.playerId);
     if (result.error) return cb?.({ ok: false, error: result.error });
     cb?.({ ok: true });
     emitUnmei(room);
