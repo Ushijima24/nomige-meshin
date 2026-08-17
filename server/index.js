@@ -688,9 +688,10 @@ function kickRankBjBots(room) {
       kickRankBjBots(room);
       return;
     }
-    rankBj.botAnswer(room, botId);
-    emitRankBj(room);
-    kickRankBjBots(room);
+    Promise.resolve(rankBj.botAnswer(room, botId)).finally(() => {
+      emitRankBj(room);
+      kickRankBjBots(room);
+    });
   }, 900 + Math.floor(Math.random() * 800));
 }
 
@@ -846,16 +847,20 @@ io.of("/rank-bj").on("connection", (socket) => {
     }
   });
 
-  socket.on("submit_answer", ({ text }, cb) => {
+  socket.on("submit_answer", async ({ text }, cb) => {
     const sess = rankBjSessions.get(socket.id);
     if (!sess) return cb?.({ ok: false, error: "未参加" });
     const room = rankBj.getRoom(sess.roomCode);
     if (!room) return cb?.({ ok: false, error: "ルームなし" });
-    const result = rankBj.submitAnswer(room, sess.playerId, text);
-    if (result.error) return cb?.({ ok: false, error: result.error });
-    cb?.({ ok: true });
-    emitRankBj(room);
-    kickRankBjBots(room);
+    try {
+      const result = await rankBj.submitAnswer(room, sess.playerId, text);
+      if (result.error) return cb?.({ ok: false, error: result.error });
+      cb?.({ ok: true });
+      emitRankBj(room);
+      kickRankBjBots(room);
+    } catch (e) {
+      cb?.({ ok: false, error: e.message || "回答失敗" });
+    }
   });
 
   socket.on("gm_confirm", (data, cb) => {

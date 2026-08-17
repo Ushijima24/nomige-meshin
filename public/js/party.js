@@ -142,7 +142,7 @@ function renderHome() {
     </div>
     <div class="panel">
       <div class="section-title">遊び方の流れ</div>
-      <p class="sub" style="margin:0">① 部屋に入る → ② 主催者がゲームを選ぶ → ③ そのゲームで遊ぶ → ④ また部屋に戻って別ゲームもOK。累計杯数は持ち越し。</p>
+      <p class="sub" style="margin:0">① 部屋に入る → ② 主催者がゲームを選ぶ → ③ そのゲームで遊ぶ → ④ また部屋に戻って別ゲームもOK。</p>
     </div>
   `;
 }

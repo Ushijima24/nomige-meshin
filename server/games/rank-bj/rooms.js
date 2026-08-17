@@ -4,7 +4,8 @@ import {
   searchRankings,
   getCatalogEntry,
 } from "./catalog.js";
-import { matchItems, suggestCandidates } from "./match.js";
+import { matchItems, suggestCandidates, normalize } from "./match.js";
+import { resolveOfficialNames } from "./wiki.js";
 
 const AVATARS = ["🦊", "🐻", "🐱", "🐸", "🐼", "🐷", "🦁", "🐨", "🐵", "🐰", "🐯", "🐮", "🐶", "🐺", "🦝", "🐔", "🐧", "🦄", "🐙", "🦖", "👻", "🎃", "👽", "🤖"];
 const BOT_NAMES = [
@@ -467,7 +468,56 @@ function applyCard(room, player, item, { miss = false } = {}) {
   delete player._rawAnswer;
 }
 
-export function submitAnswer(room, playerId, text) {
+function mergeCandidates(primary, extra, limit = 15) {
+  const seen = new Set();
+  const out = [];
+  for (const it of [...(primary || []), ...(extra || [])]) {
+    if (!it?.name || seen.has(it.name)) continue;
+    seen.add(it.name);
+    out.push(it);
+    if (out.length >= limit) break;
+  }
+  return out;
+}
+
+async function matchPlayerAnswer(answer, items) {
+  const local = matchItems(answer, items);
+  if (local.auto) return local;
+
+  const official = await resolveOfficialNames(answer);
+  const autos = [];
+  const extraCand = [];
+  const seenAuto = new Set();
+  const addAuto = (it) => {
+    if (!it?.name || seenAuto.has(it.name)) return;
+    seenAuto.add(it.name);
+    autos.push(it);
+  };
+  for (const name of official) {
+    extraCand.push(...suggestCandidates(name, items, 8));
+    for (const it of items) {
+      const aliases = [it.name, ...(it.aliases || [])];
+      if (aliases.some((a) => normalize(a) === normalize(name))) addAuto(it);
+    }
+  }
+  if (autos.length === 1) {
+    return {
+      auto: autos[0],
+      candidates: mergeCandidates(autos, extraCand),
+      confidence: "high",
+    };
+  }
+  return {
+    auto: null,
+    candidates: mergeCandidates(
+      extraCand,
+      [...(local.candidates || []), ...suggestCandidates(answer, items, 15)]
+    ),
+    confidence: autos.length > 1 ? "ambiguous" : local.confidence,
+  };
+}
+
+export async function submitAnswer(room, playerId, text) {
   const p = getP(room, playerId);
   if (!p) return { error: "未参加" };
   if (room.playStep !== "answering" && room.playStep !== "gm_judge") {
@@ -484,7 +534,7 @@ export function submitAnswer(room, playerId, text) {
   if (mine.has(answer)) return { error: "同じ名前は2回使えません" };
 
   p._rawAnswer = answer;
-  const result = matchItems(answer, room.currentTopic.items);
+  const result = await matchPlayerAnswer(answer, room.currentTopic.items);
   if (result.auto) {
     if (mine.has(result.auto.name)) {
       return { error: "同じ項目は2回使えません" };
@@ -499,7 +549,9 @@ export function submitAnswer(room, playerId, text) {
   room.judgeQueue.push({
     playerId,
     text: answer,
-    candidates: suggestCandidates(answer, room.currentTopic.items, 15),
+    candidates: result.candidates?.length
+      ? result.candidates
+      : suggestCandidates(answer, room.currentTopic.items, 15),
   });
   p.actedThisDraw = true;
   maybeAdvance(room);
