@@ -24,6 +24,7 @@ export const PARTY_GAMES = [
     title: "画像で全員一致",
     path: "/games/image-match/",
     desc: "隠れた部分を当てる。同じ答え同士でまとめ、少ないグループが飲む。",
+    hidden: true, // 一旦非表示。戻すときは false にするかこの行を消す
   },
   {
     id: "rank-bj",
@@ -241,7 +242,7 @@ export function publicState(room, viewerId) {
     you: viewerId,
     isHost: room.hostId === viewerId,
     players,
-    games: PARTY_GAMES,
+    games: PARTY_GAMES.filter((g) => !g.hidden),
     drinkBoard: players.map((p) => ({
       id: p.id,
       name: p.name,

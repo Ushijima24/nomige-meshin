@@ -1599,7 +1599,7 @@ io.of("/party").on("connection", (socket) => {
     }
 
     const meta = party.PARTY_GAMES.find((g) => g.id === gameId);
-    if (!meta) return cb?.({ ok: false, error: "不明なゲーム" });
+    if (!meta || meta.hidden) return cb?.({ ok: false, error: "不明なゲーム" });
 
     const snap = partySnap(room);
     let spawned;

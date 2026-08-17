@@ -508,7 +508,8 @@ function renderHowtoTab() {
         <li><strong>ステルス・クロック・時限爆弾</strong>は、使ったその瞬間は残り回数を減らさない</li>
         <li><strong>エスコン</strong>は使った人にだけ効く（他の人の「自分の番継続」はそのまま）</li>
         <li><strong>無敵</strong>の人が負けても、本人は飲まず両隣が飲む</li>
-        <li><strong>効果なし×2</strong>は無敵・免除を貫通して他全員に飲ませる</li>
+        <li><strong>効果なし×2</strong>は無敵・免除を貫通して他全員に飲ませ、運命共同体にも波及する</li>
+        <li><strong>犯罪者</strong>はその試合の飲酒を全員分まとめて請け負う（自分負けなら2倍）</li>
       </ul>
     </div>
   `;

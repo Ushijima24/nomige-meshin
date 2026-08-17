@@ -165,6 +165,39 @@ function hasPassCard(hand) {
   return hand.some((h) => CARDS[h.cardId]?.isPassCard);
 }
 
+function botCanPassWithHand(room, owner, playable) {
+  for (const h of playable) {
+    let effectId = h.cardId;
+    if (effectId === "copy") {
+      if (!room.lastPlayed) continue;
+      effectId = room.lastPlayed.cardId;
+      if (
+        !effectId ||
+        effectId === "copy" ||
+        effectId === "nocount" ||
+        CARDS[effectId]?.unusable
+      ) {
+        continue;
+      }
+    }
+    const def = CARDS[effectId];
+    if (!def) continue;
+    if (def.isPassCard) return true;
+    if (effectId === "hanzawa" && room.lastPasserId && getP(room, room.lastPasserId)) {
+      return true;
+    }
+    if (effectId === "baibai_fight" && room.holderReceivedBoosted) return true;
+    if (
+      effectId === "nocount" &&
+      room.lastPlayed &&
+      room.lastEffectSnapshot
+    ) {
+      return true;
+    }
+  }
+  return false;
+}
+
 /** 1人3枚＋必ず渡す系を1枚以上 */
 function dealHands(room) {
   for (const p of playerList(room)) {
@@ -531,6 +564,54 @@ function pushDrink(drinks, playerId, cups, reason, room, { pierce = false } = {}
   drinks.push({ playerId, cups, reason });
 }
 
+function addBondDrinks(drinks, room) {
+  const extra = [];
+  for (const d of drinks) {
+    if (d.reason === "運命共同体") continue;
+    const p = getP(room, d.playerId);
+    if (!p?.bondWith) continue;
+    extra.push({ playerId: p.bondWith, cups: d.cups });
+  }
+  for (const e of extra) {
+    const op = getP(room, e.playerId);
+    if (op?.bomberImmune) {
+      pushLog(room, `💫 ${op.name} は【免除】（運命共同体）`);
+      continue;
+    }
+    drinks.push({
+      playerId: e.playerId,
+      cups: e.cups,
+      reason: "運命共同体",
+    });
+  }
+}
+
+function applyCriminalTakeover(drinks, room, loserId) {
+  const criminal = playerList(room).find((p) =>
+    (p.hand || []).some((h) => h.cardId === "hanzai")
+  );
+  if (!criminal) return;
+  const total = drinks.reduce((s, d) => s + (d.cups || 0), 0);
+  let cups = total;
+  if (criminal.id === loserId) cups *= 2;
+  drinks.length = 0;
+  if (cups <= 0) {
+    pushLog(room, `🚔 犯罪者 ${criminal.name}：請け負う杯がなかった`);
+    return;
+  }
+  const reason =
+    criminal.id === loserId
+      ? "犯罪者（全員分を請け負い・自分負けで2倍）"
+      : "犯罪者（全員分を請け負い）";
+  pushDrink(drinks, criminal.id, cups, reason, room);
+  pushLog(
+    room,
+    `🚔 犯罪者 ${criminal.name} が全員分 ${cups}杯を請け負った${
+      criminal.id === loserId ? "（自分負けで2倍）" : ""
+    }`
+  );
+}
+
 /** 飲む処理（無敵・運命共同体・長渕・犯罪者・効果なし・ボマー） */
 function applyDrink(room, loserId, { forced = false, partnerIds = [] } = {}) {
   const amount = room.amount;
@@ -581,50 +662,6 @@ function applyDrink(room, loserId, { forced = false, partnerIds = [] } = {}) {
     }
   }
 
-  const bondedExtra = [];
-  for (const d of drinks) {
-    const p = getP(room, d.playerId);
-    if (p?.bondWith) {
-      const other = p.bondWith;
-      if (
-        !drinks.some(
-          (x) => x.playerId === other && x.reason === "運命共同体"
-        ) &&
-        !bondedExtra.some((x) => x.playerId === other)
-      ) {
-        const op = getP(room, other);
-        if (!op?.bomberImmune) {
-          bondedExtra.push({
-            playerId: other,
-            cups: d.cups,
-            reason: "運命共同体",
-          });
-        } else {
-          pushLog(room, `💫 ${op.name} は【免除】（運命共同体）`);
-        }
-      }
-    }
-  }
-  drinks.push(...bondedExtra);
-
-  for (const p of playerList(room)) {
-    const has = p.hand.some((h) => h.cardId === "hanzai");
-    if (!has) continue;
-    if (p.id === loserId) {
-      pushDrink(
-        drinks,
-        p.id,
-        amount,
-        "犯罪者（自分が負けたので追加1杯＝計2倍相当）",
-        room
-      );
-      pushLog(room, `🚔 犯罪者 ${p.name}：自分負けのため追加飲酒`);
-    } else {
-      pushDrink(drinks, p.id, amount, "犯罪者（負けた人の肩代わり）", room);
-      pushLog(room, `🚔 犯罪者 ${p.name}：肩代わりで飲む`);
-    }
-  }
-
   for (const p of playerList(room)) {
     const nashi = koukaNashiInHand(p);
     p.koukaNashiCount = nashi;
@@ -643,6 +680,9 @@ function applyDrink(room, loserId, { forced = false, partnerIds = [] } = {}) {
       pushLog(room, `📦 ${p.name} の効果なし×2発動！他全員に倍量`);
     }
   }
+
+  addBondDrinks(drinks, room);
+  applyCriminalTakeover(drinks, room, loserId);
 
   const merged = new Map();
   for (const d of drinks) {
@@ -1151,6 +1191,10 @@ export function playAsBot(room, botId) {
 
   const playable = (owner.hand || []).filter((h) => !CARDS[h.cardId]?.unusable);
   if (!playable.length) {
+    return admitLose(room, botId);
+  }
+  if (!botCanPassWithHand(room, owner, playable)) {
+    pushLog(room, `🤖 ${owner.name} は渡せるカードがないので負け`);
     return admitLose(room, botId);
   }
 
@@ -1762,11 +1806,16 @@ function resolveEffect(room, playerId, effectId, opts) {
     case "sentakuki": {
       const rotated = rotateHandsClockwise(room);
       if (rotated.error) return rotated;
+      const taiman = !!room.taimanPair;
       pushLog(
         room,
-        `🌀 洗濯機！手札を時計回り（${(rotated.names || []).join("→")}→…）`
+        `🌀 洗濯機！${taiman ? "タイマンの2人" : "手札を時計回り"}（${(rotated.names || []).join("→")}→…）`
       );
-      return { announceBody: "全員の手札を時計回りに回した" };
+      return {
+        announceBody: taiman
+          ? "タイマンの2人の手札を回した"
+          : "全員の手札を時計回りに回した（ステルスは除く）",
+      };
     }
     case "norikae": {
       const drawn = drawCard(room, playerId);

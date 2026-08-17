@@ -71,7 +71,7 @@ export const CARDS = {
     name: "犯罪者",
     rank: "S",
     effect:
-      "このカードをゲーム終了時に持っていたら自分が負けた人の肩代わりとしてのむ(自分が負けた場合は２倍飲む)",
+      "このカードをゲーム終了時に持っていたら、その試合の飲酒を全員分まとめて自分が請け負う(自分が負けた場合は２倍飲む)",
     oncePerMatch: true,
     unusable: true,
   },
@@ -79,7 +79,7 @@ export const CARDS = {
     id: "sentakuki",
     name: "洗濯機",
     rank: "S",
-    effect: "全員の手札を時計回りに回す",
+    effect: "全員の手札を時計回りに回す（ステルス中は飛ばす。タイマン中は2人だけ）",
     keepsTurn: true,
   },
   gouyoku: {
@@ -246,7 +246,7 @@ export const CARDS = {
     name: "効果なし",
     rank: "C",
     effect:
-      "2枚集めると勝敗に関わらず自分以外全員に倍量飲ませられる（無敵・免除も貫通）、試合が終わったあと発動",
+      "2枚集めると勝敗に関わらず自分以外全員に倍量飲ませられる（無敵・免除も貫通、運命共同体にも波及）、試合が終わったあと発動",
     unusable: true,
   },
   aho: {
