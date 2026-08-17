@@ -417,6 +417,37 @@ const trapGrace = createGraceTracker(
   emitTrap
 );
 
+const TRAP_PLAY_DISCONNECT_MS = 25 * 1000;
+const trapPlayDisconnectTimers = new Map();
+function trapPlayDisconnectKey(code, id) {
+  return `${code}:${id}`;
+}
+function cancelTrapPlayDisconnect(code, id) {
+  const k = trapPlayDisconnectKey(code, id);
+  clearTimeout(trapPlayDisconnectTimers.get(k));
+  trapPlayDisconnectTimers.delete(k);
+}
+function scheduleTrapPlayDisconnect(code, id) {
+  cancelTrapPlayDisconnect(code, id);
+  trapPlayDisconnectTimers.set(
+    trapPlayDisconnectKey(code, id),
+    setTimeout(() => {
+      trapPlayDisconnectTimers.delete(trapPlayDisconnectKey(code, id));
+      const still = [...trapSessions.values()].some(
+        (s) => s.roomCode === code && s.playerId === id
+      );
+      if (still) return;
+      const room = trap.getRoom(code);
+      if (!room) return;
+      const result = trap.resolveDisconnectedPlayer(room, id);
+      if (result) {
+        emitTrap(room);
+        kickTrapBots(room);
+      }
+    }, TRAP_PLAY_DISCONNECT_MS)
+  );
+}
+
 function kickTrapBots(room) {
   if (room._botKickScheduled) return;
   const botIds = trap.listBotsNeedingAction(room);
@@ -449,6 +480,7 @@ function bindTrap(socket, roomCode, playerId) {
   trapSessions.set(socket.id, { roomCode, playerId });
   socket.join(roomCode);
   trapGrace.cancel(roomCode, playerId);
+  cancelTrapPlayDisconnect(roomCode, playerId);
 }
 
 io.of("/trap").on("connection", (socket) => {
@@ -517,7 +549,12 @@ io.of("/trap").on("connection", (socket) => {
     const room = trap.getRoom(sess.roomCode);
     if (room) {
       const updated = trap.leaveRoom(room, sess.playerId);
-      if (updated) emitTrap(updated);
+      if (updated) {
+        emitTrap(updated);
+        if (updated.phase === "playing") {
+          scheduleTrapPlayDisconnect(sess.roomCode, sess.playerId);
+        }
+      }
     }
     cb?.({ ok: true });
   });
@@ -653,6 +690,9 @@ io.of("/trap").on("connection", (socket) => {
     trap.setConnected(room, sess.playerId, false);
     emitTrap(room);
     trapGrace.schedule(sess.roomCode, sess.playerId);
+    if (room.phase === "playing") {
+      scheduleTrapPlayDisconnect(sess.roomCode, sess.playerId);
+    }
   });
 });
 

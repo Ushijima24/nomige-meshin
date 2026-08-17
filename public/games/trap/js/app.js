@@ -160,12 +160,13 @@ socket.on("state", (state) => {
     if (state.phase === "lobby") ui.view = "lobby";
     else ui.view = "game";
   }
-  if (!state.yourTurn) {
+  if (!state.yourTurn && !state.pitouPicking) {
     ui.selectedInstanceId = null;
     ui.mode = null;
     ui.targetId = null;
     ui.gravePicks = [];
   }
+  if (state.phase !== "result") ui.carryPickId = null;
   if (state.announce?.id && state.announce.id !== ui.announceId) {
     ui.announceId = state.announce.id;
     ui.announceVisible = true;
@@ -467,16 +468,6 @@ function renderHowtoTab() {
     <div class="panel howto">
       <div class="section-title">このゲームは何？</div>
       <p>飲み会で遊ぶ<strong>お酒のたらい回し</strong>ゲームです。誰か1人に「酒」が回ってきます。カードでかわしたり増やしたりして、最後に負けた人が飲みます。</p>
-    </div>
-
-    <div class="panel howto">
-      <div class="section-title">始め方</div>
-      <ol class="howto-list">
-        <li>誰か1人が<strong>ルーム作成</strong>する（主催者）</li>
-        <li>友達に<strong>ルームコード</strong>かURLを送る</li>
-        <li>2人以上そろったら主催者が<strong>ゲーム開始</strong></li>
-        <li>人数が足りないときは<strong>PC参加</strong>でダミーを足せる</li>
-      </ol>
     </div>
 
     <div class="panel howto">
@@ -793,10 +784,7 @@ function renderPlaying() {
   } else if (pitouLocked) {
     actionPanel = `<div class="panel"><p class="sub" style="margin:0">ネフェルピトー（${escapeHtml(
       s.players.find((p) => p.id === s.pitouControllerId)?.name || "?"
-    )}）がカードを選んでいます。</p>
-        <button class="btn danger" id="lose" style="margin-top:10px" ${
-          ui.busy ? "disabled" : ""
-        }>負けを認める</button>
+    )}）がカードを選んでいます。この間は負けを認められません。</p>
         <div class="section-title" style="margin-top:12px">あなたの手札</div>
         <div class="hand">${(s.myHand || [])
           .map((c) => cardButton(c, { disabled: true }))
@@ -889,7 +877,11 @@ function renderPlaying() {
         ? `<div class="panel" style="margin-top:28px">
             <button type="button" class="btn ghost" id="abort-match" ${
               ui.busy ? "disabled" : ""
-            }>試合を中止してロビーへ</button>
+            }>${
+              hasPartySession()
+                ? "試合を中止してゲーム選択に戻る"
+                : "試合を中止してロビーへ"
+            }</button>
             ${partyReturnBtnHtml("back-party-play")}
             <p class="sub" style="margin:8px 0 0">パーティーに戻ると累計は持ち越し。主催者のみ。</p>
           </div>`
@@ -971,7 +963,11 @@ function renderResult() {
       s.isHost
         ? `<div class="row">
             <button class="btn ok" id="next" ${ui.busy ? "disabled" : ""}>次の試合</button>
-            <button class="btn ghost" id="lobby" ${ui.busy ? "disabled" : ""}>ゲームロビーへ</button>
+            ${
+              hasPartySession()
+                ? ""
+                : `<button class="btn ghost" id="lobby" ${ui.busy ? "disabled" : ""}>ゲームロビーへ</button>`
+            }
           </div>
           ${partyReturnBtnHtml("back-party-result")}`
         : `<p class="sub">主催者の操作待ち…</p>${partyReturnBtnHtml(
@@ -1135,7 +1131,10 @@ function bind() {
   });
   app.querySelector("#lobby")?.addEventListener("click", () => emit("back_to_lobby"));
   app.querySelector("#abort-match")?.addEventListener("click", () => {
-    if (confirm("試合を中止してロビーに戻しますか？（進行中の試合は破棄されます）")) {
+    const msg = hasPartySession()
+      ? "試合を中止してゲーム選択に戻しますか？（進行中の試合は破棄されます）"
+      : "試合を中止してロビーに戻しますか？（進行中の試合は破棄されます）";
+    if (confirm(msg)) {
       emit("back_to_lobby");
     }
   });

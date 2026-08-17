@@ -146,11 +146,19 @@ export function drawCard(room, forPlayerId, { forcePass = false } = {}) {
   return makeInstance(def.id);
 }
 
+function koukaNashiInHand(player) {
+  return (player?.hand || []).filter((h) => h.cardId === "kouka_nashi").length;
+}
+
 function giveCard(room, player, inst) {
+  if (inst?.cardId === "kaisuken") inst.usesLeft = inst.usesLeft ?? 2;
   player.hand.push(inst);
-  if (inst.cardId === "kouka_nashi") {
-    player.koukaNashiCount = (player.koukaNashiCount || 0) + 1;
-  }
+  player.koukaNashiCount = koukaNashiInHand(player);
+}
+
+function refreshKaisuken(inst) {
+  if (inst?.cardId === "kaisuken") inst.usesLeft = 2;
+  return inst;
 }
 
 function hasPassCard(hand) {
@@ -393,6 +401,8 @@ function discardToGrave(room, instances, byPlayerId, reason) {
     });
   }
   if (room.graveyard.length > 40) room.graveyard.length = 40;
+  const owner = byPlayerId ? getP(room, byPlayerId) : null;
+  if (owner) owner.koukaNashiCount = koukaNashiInHand(owner);
 }
 
 function removeFromHand(player, instanceId) {
@@ -553,7 +563,9 @@ function applyDrink(room, loserId, { forced = false, partnerIds = [] } = {}) {
   }
 
   for (const p of playerList(room)) {
-    if ((p.koukaNashiCount || 0) >= 2) {
+    const nashi = koukaNashiInHand(p);
+    p.koukaNashiCount = nashi;
+    if (nashi >= 2) {
       for (const o of playerList(room)) {
         if (o.id === p.id) continue;
         pushDrink(
@@ -565,7 +577,6 @@ function applyDrink(room, loserId, { forced = false, partnerIds = [] } = {}) {
         );
       }
       pushLog(room, `📦 ${p.name} の効果なし×2発動！他全員に倍量`);
-      p.koukaNashiCount = 0;
     }
   }
 
@@ -980,6 +991,38 @@ export function leaveRoom(room, playerId) {
   return room;
 }
 
+/** 切断した酒持ち／ネフェルピトーを試合から外して進行する */
+export function resolveDisconnectedPlayer(room, playerId) {
+  const p = getP(room, playerId);
+  if (!p || p.connected !== false) return { ok: true };
+  if (room.phase !== "playing") return { ok: true };
+
+  if (room.pitouControllerId === playerId && room.holderId !== playerId) {
+    room.pitouControllerId = null;
+    pushLog(room, `🔌 ${p.name} が切断したためネフェルピトー解除`);
+    setAnnounce(room, {
+      type: "info",
+      playerId,
+      name: p.name,
+      avatar: p.avatar || "",
+      title: `${p.name} が切断`,
+      body: "ネフェルピトーが解除されました。酒持ちがカードを選べます。",
+    });
+    return { ok: true };
+  }
+
+  if (room.holderId === playerId) {
+    const pitouId = room.pitouControllerId;
+    const pitou =
+      pitouId && pitouId !== playerId ? getP(room, pitouId) : null;
+    if (pitou && pitou.connected !== false) return { ok: true };
+    room.pitouControllerId = null;
+    pushLog(room, `🔌 ${p.name} が切断したため負け`);
+    return admitLose(room, playerId);
+  }
+  return { ok: true };
+}
+
 /** 今カードを使うべきボットID（酒持ち／ネフェルピトー） */
 export function listBotsNeedingAction(room) {
   if (room.phase !== "playing") return [];
@@ -1023,12 +1066,12 @@ export function playAsBot(room, botId) {
   }
 
   if ((owner.clockTurns || 0) > 0) {
-    return admitLose(room, owner.id);
+    return admitLose(room, botId);
   }
 
   const playable = (owner.hand || []).filter((h) => !CARDS[h.cardId]?.unusable);
   if (!playable.length) {
-    return admitLose(room, owner.id);
+    return admitLose(room, botId);
   }
 
   const preferPass = [
@@ -1130,7 +1173,9 @@ export function playAsBot(room, botId) {
 
   const michi = playable.find((h) => h.cardId === "michizure");
   if (michi) {
-    const targets = randomTargets(room, botId);
+    const targets = randomTargets(room, owner.id).filter((t) =>
+      canAffect(room, t.id)
+    );
     if (targets.length) {
       const result = playCard(room, botId, michi.instanceId, {
         targetId: targets[(Math.random() * targets.length) | 0].id,
@@ -1322,10 +1367,11 @@ export function playCard(room, actorId, instanceId, opts = {}) {
   const used = removeFromHand(player, instanceId);
   if (!used) return { error: "手札エラー" };
 
-  // 回数券: 残回数があれば手札に戻す
+  // 回数券: 残回数があれば手札に戻す。コピー／交換後は新品2回として扱う。
   let returnedKaisukenInst = null;
   if (def.id === "kaisuken" || (def.id === "copy" && effectId === "kaisuken")) {
-    const left = (used.usesLeft ?? 2) - 1;
+    const fromFresh = def.id === "copy" ? 2 : used.usesLeft ?? 2;
+    const left = fromFresh - 1;
     if (left > 0) {
       returnedKaisukenInst = makeInstance("kaisuken", { usesLeft: left });
       player.hand.push(returnedKaisukenInst);
@@ -1333,15 +1379,14 @@ export function playCard(room, actorId, instanceId, opts = {}) {
     }
   }
 
+  const graveIds = [];
   if (!returnedKaisukenInst || def.id !== "kaisuken") {
     discardToGrave(room, [used], playerId, "play");
+    graveIds.push(used.instanceId);
   } else {
-    discardToGrave(
-      room,
-      [{ ...used, instanceId: uid() }],
-      playerId,
-      "kaisuken-use"
-    );
+    const clone = { ...used, instanceId: uid() };
+    discardToGrave(room, [clone], playerId, "kaisuken-use");
+    graveIds.push(clone.instanceId);
   }
 
   player.cardsUsedThisMatch = (player.cardsUsedThisMatch || 0) + 1;
@@ -1350,9 +1395,17 @@ export function playCard(room, actorId, instanceId, opts = {}) {
   const result = resolveEffect(room, playerId, effectId, opts);
 
   if (result.error) {
-    player.hand.push(used);
-    const gi = room.graveyard.findIndex((g) => g.instanceId === used.instanceId);
-    if (gi >= 0) room.graveyard.splice(gi, 1);
+    if (returnedKaisukenInst) {
+      removeFromHand(player, returnedKaisukenInst.instanceId);
+    }
+    if (!player.hand.some((h) => h.instanceId === used.instanceId)) {
+      player.hand.push(used);
+    }
+    for (const gid of graveIds) {
+      const gi = room.graveyard.findIndex((g) => g.instanceId === gid);
+      if (gi >= 0) room.graveyard.splice(gi, 1);
+    }
+    player.koukaNashiCount = koukaNashiInHand(player);
     player.cardsUsedThisMatch = Math.max(
       0,
       (player.cardsUsedThisMatch || 1) - 1
@@ -1604,6 +1657,7 @@ function resolveEffect(room, playerId, effectId, opts) {
       }
       discardToGrave(room, [...player.hand], playerId, "hanzawa");
       player.hand = [];
+      player.koukaNashiCount = 0;
       passDrink(room, room.lastPasserId, playerId);
       pushLog(room, `💼 半沢！手札全捨てで返した`);
       return {};
@@ -1611,6 +1665,8 @@ function resolveEffect(room, playerId, effectId, opts) {
     case "unmei": {
       const t = getP(room, opts.targetId);
       if (!canAffect(room, opts.targetId)) return { error: "ステルス中" };
+      clearBond(room, playerId);
+      clearBond(room, opts.targetId);
       player.bondWith = opts.targetId;
       t.bondWith = playerId;
       pushLog(room, `🔗 運命共同体 ${player.name} ⇔ ${t.name}`);
@@ -1690,7 +1746,7 @@ function resolveEffect(room, playerId, effectId, opts) {
     case "kouka_nashi": {
       pushLog(
         room,
-        `⬜ 効果なし（${player.name} 収集 ${player.koukaNashiCount}/2・終了時発動）`
+        `⬜ 効果なし（${player.name} 手札 ${koukaNashiInHand(player)}/2・終了時発動）`
       );
       return {};
     }
@@ -1723,14 +1779,10 @@ function resolveEffect(room, playerId, effectId, opts) {
       const theirIdx = (Math.random() * t.hand.length) | 0;
       const mine = player.hand[myIdx];
       const theirs = t.hand[theirIdx];
-      player.hand[myIdx] = theirs;
-      t.hand[theirIdx] = mine;
-      if (theirs.cardId === "kouka_nashi") {
-        player.koukaNashiCount = (player.koukaNashiCount || 0) + 1;
-      }
-      if (mine.cardId === "kouka_nashi") {
-        t.koukaNashiCount = (t.koukaNashiCount || 0) + 1;
-      }
+      player.hand[myIdx] = refreshKaisuken(theirs);
+      t.hand[theirIdx] = refreshKaisuken(mine);
+      player.koukaNashiCount = koukaNashiInHand(player);
+      t.koukaNashiCount = koukaNashiInHand(t);
       pushLog(
         room,
         `🔄 ${player.name} ⇔ ${t.name} 「${CARDS[mine.cardId]?.name}」と「${CARDS[theirs.cardId]?.name}」を交換`
@@ -1767,6 +1819,14 @@ export function clearPeek(room, playerId) {
   return { ok: true };
 }
 
+function clearBond(room, playerId) {
+  const p = getP(room, playerId);
+  if (!p?.bondWith) return;
+  const other = getP(room, p.bondWith);
+  if (other?.bondWith === playerId) other.bondWith = null;
+  p.bondWith = null;
+}
+
 export function admitLose(room, playerId) {
   if (room.phase !== "playing") return { error: "プレイ中のみ" };
   const holderId = room.holderId;
@@ -1775,6 +1835,13 @@ export function admitLose(room, playerId) {
     room.pitouControllerId === playerId &&
     holderId &&
     holderId !== playerId;
+  const pitouTakesOver =
+    !!room.pitouControllerId &&
+    holderId &&
+    room.pitouControllerId !== holderId;
+  if (pitouTakesOver && !asPitou) {
+    return { error: "ネフェルピトーがカードを選んでいます" };
+  }
   if (holderId !== playerId && !asPitou) {
     return { error: "酒が回ってきていません" };
   }
@@ -1829,7 +1896,7 @@ export function publicState(room, viewerId) {
       bondWith: p.bondWith,
       bondName: bondPartner?.name || null,
       bomberImmune: !!p.bomberImmune,
-      koukaNashiCount: p.koukaNashiCount || 0,
+      koukaNashiCount: koukaNashiInHand(p),
       taga: !!p.taga,
       isBot: !!p.isBot,
     };
