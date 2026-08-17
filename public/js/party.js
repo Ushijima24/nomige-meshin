@@ -283,10 +283,7 @@ function bind() {
     }
   });
   app.querySelector("#add-bot")?.addEventListener("click", () => emit("add_bot"));
-  app.querySelector("#reset-drinks")?.addEventListener("click", async () => {
-    if (!confirm("全員の累計杯数を0に戻しますか？")) return;
-    await emit("reset_drinks");
-  });
+  app.querySelector("#reset-drinks")?.addEventListener("click", () => emit("reset_drinks"));
   app.querySelectorAll("[data-kick]").forEach((b) =>
     b.addEventListener("click", () =>
       emit("kick_player", { playerId: b.getAttribute("data-kick") })

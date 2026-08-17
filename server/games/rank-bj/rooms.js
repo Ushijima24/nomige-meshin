@@ -19,6 +19,20 @@ const MISS_RANK = 22;
 
 /** @type {Map<string, object>} */
 const rooms = new Map();
+/** 同じパーティーコードで一度やったお題（ゲームを出ても残す） */
+const playedTopicsByCode = new Map();
+
+function playedSlugsFor(code) {
+  return playedTopicsByCode.get(String(code || "").toUpperCase()) || [];
+}
+
+function rememberPlayedSlug(code, slug) {
+  if (!code || !slug) return;
+  const key = String(code).toUpperCase();
+  const arr = playedTopicsByCode.get(key) || [];
+  if (!arr.includes(slug)) arr.push(slug);
+  playedTopicsByCode.set(key, arr);
+}
 
 function code() {
   const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
@@ -82,6 +96,8 @@ export function createRoom(name, avatar) {
     playStep: null,
     topicChoices: [],
     lastChoiceSlugs: [],
+    shownChoiceSlugs: [],
+    playedSlugs: [...playedSlugsFor(roomCode)],
     currentTopic: null,
     judgeQueue: [],
     result: null,
@@ -114,6 +130,8 @@ export function createFromParty(partySnap) {
     playStep: null,
     topicChoices: [],
     lastChoiceSlugs: [],
+    shownChoiceSlugs: [],
+    playedSlugs: [...playedSlugsFor(roomCode)],
     currentTopic: null,
     judgeQueue: [],
     result: null,
@@ -244,9 +262,14 @@ export function removeBot(room, hostId, botId) {
 }
 
 function refillTopics(room, extraExclude = []) {
-  const exclude = extraExclude.filter(Boolean);
-  room.topicChoices = pickCandidates(exclude, room.lastChoiceSlugs, 5);
+  if (!room.shownChoiceSlugs) room.shownChoiceSlugs = [];
+  room.playedSlugs = [...playedSlugsFor(room.code)];
+  const exclude = [...room.playedSlugs, ...extraExclude].filter(Boolean);
+  room.topicChoices = pickCandidates(exclude, room.shownChoiceSlugs, 5);
   room.lastChoiceSlugs = room.topicChoices.map((c) => c.slug);
+  for (const c of room.topicChoices) {
+    if (!room.shownChoiceSlugs.includes(c.slug)) room.shownChoiceSlugs.push(c.slug);
+  }
 }
 
 function resetHands(room, { keepTopic = false } = {}) {
@@ -384,9 +407,15 @@ export async function searchTopics(room, hostId, q) {
   if (!requireHost(room, hostId)) return { error: "主催者のみ" };
   if (room.playStep !== "pick_topic") return { error: "今はお題選びではありません" };
   const found = await searchRankings(q);
-  if (!found.length) return { error: "見つかりませんでした" };
-  room.topicChoices = found.slice(0, 8);
+  const played = new Set(playedSlugsFor(room.code));
+  const filtered = found.filter((c) => !played.has(c.slug));
+  if (!filtered.length) return { error: "未プレイのお題が見つかりませんでした" };
+  room.topicChoices = filtered.slice(0, 8);
   room.lastChoiceSlugs = room.topicChoices.map((c) => c.slug);
+  if (!room.shownChoiceSlugs) room.shownChoiceSlugs = [];
+  for (const c of room.topicChoices) {
+    if (!room.shownChoiceSlugs.includes(c.slug)) room.shownChoiceSlugs.push(c.slug);
+  }
   return { ok: true };
 }
 
@@ -400,6 +429,8 @@ export async function pickTopic(room, hostId, slug) {
     return { error: e.message || "ランキングを取得できませんでした" };
   }
   const entry = getCatalogEntry(slug);
+  rememberPlayedSlug(room.code, slug);
+  room.playedSlugs = [...playedSlugsFor(room.code)];
   const forDraw2 = !!room.pendingDraw2;
   room.currentTopic = {
     slug,

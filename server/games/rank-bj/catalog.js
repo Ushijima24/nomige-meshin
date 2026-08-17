@@ -32,15 +32,31 @@ export function getCatalogEntry(slug) {
 export function pickCandidates(excludeSlugs = [], avoidSlugs = [], n = 5) {
   const exclude = new Set(excludeSlugs);
   const avoid = new Set(avoidSlugs);
-  const pool = catalog.filter((c) => !exclude.has(c.slug));
-  const preferred = pool.filter((c) => !avoid.has(c.slug));
-  const src = preferred.length >= n ? preferred : pool;
-  const shuffled = [...src];
-  for (let i = shuffled.length - 1; i > 0; i--) {
-    const j = (Math.random() * (i + 1)) | 0;
-    [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
+  const unused = catalog.filter((c) => !exclude.has(c.slug));
+  const fresh = unused.filter((c) => !avoid.has(c.slug));
+  const shuffle = (arr) => {
+    const out = [...arr];
+    for (let i = out.length - 1; i > 0; i--) {
+      const j = (Math.random() * (i + 1)) | 0;
+      [out[i], out[j]] = [out[j], out[i]];
+    }
+    return out;
+  };
+  const picked = [];
+  const seen = new Set();
+  for (const c of shuffle(fresh)) {
+    if (picked.length >= n) break;
+    picked.push(c);
+    seen.add(c.slug);
   }
-  return shuffled.slice(0, n);
+  if (picked.length < n) {
+    for (const c of shuffle(unused)) {
+      if (picked.length >= n) break;
+      if (seen.has(c.slug)) continue;
+      picked.push(c);
+    }
+  }
+  return picked;
 }
 
 async function fetchText(url) {
