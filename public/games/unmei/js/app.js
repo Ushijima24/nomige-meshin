@@ -175,12 +175,9 @@ socket.on("state", (state) => {
 });
 
 function emit(event, data = {}, opts = {}) {
-  const lock = opts.lock !== false;
+  const lock = opts.lock === true;
   return new Promise((resolve) => {
-    if (lock) {
-      ui.busy = true;
-      render();
-    }
+    if (lock) ui.busy = true;
     let settled = false;
     const timer = setTimeout(() => {
       if (settled) return;
@@ -189,14 +186,18 @@ function emit(event, data = {}, opts = {}) {
       ui.error = ui.error || "応答がありません。もう一度押してね";
       render();
       resolve({ ok: false, error: ui.error });
-    }, 10000);
+    }, 8000);
     socket.emit(event, data, (res) => {
       if (settled) return;
       settled = true;
       clearTimeout(timer);
       ui.busy = false;
-      if (res && !res.ok) ui.error = res.error || "エラー";
-      render();
+      if (res && !res.ok) {
+        ui.error = res.error || "エラー";
+        render();
+      } else if (res?.ok) {
+        ui.error = "";
+      }
       resolve(res || { ok: false });
     });
   });
@@ -416,7 +417,7 @@ function renderLobby() {
     <div class="lobby-actions">
       ${
         isHost
-          ? `<button class="btn" data-act="start" ${!s.canStart || ui.busy ? "disabled" : ""}>ゲーム開始（${s.minPlayers}人〜）</button>`
+          ? `<button class="btn" data-act="start" ${!s.canStart ? "disabled" : ""}>ゲーム開始（${s.minPlayers}人〜）</button>`
           : `<p class="wait">主催者の開始待ち…</p>`
       }
       ${ui.error ? `<div class="error">${escapeHtml(ui.error)}</div>` : ""}
@@ -439,14 +440,14 @@ function renderPickTopic() {
                ${(s.topicChoices || [])
                  .map(
                    (t) =>
-                     `<button type="button" class="topic-choice" data-act="topic" data-id="${t.id}" ${ui.busy ? "disabled" : ""}>${escapeHtml(t.text)}</button>`
+                     `<button type="button" class="topic-choice" data-act="topic" data-id="${t.id}">${escapeHtml(t.text)}</button>`
                  )
                  .join("")}
              </div>
-             <button class="btn ghost" data-act="refresh" ${ui.busy ? "disabled" : ""}>お題を入れ替える</button>
+             <button class="btn ghost" data-act="refresh">お題を入れ替える</button>
              <label style="margin-top:12px">オリジナルお題</label>
              <input type="text" id="custom-topic" maxlength="40" placeholder="例：この中で一緒に飲みに行くなら誰？" value="${escapeHtml(ui.customTopic)}" />
-             <button class="btn" data-act="custom-topic" ${ui.busy ? "disabled" : ""}>このお題で始める</button>
+             <button class="btn" data-act="custom-topic">このお題で始める</button>
              ${ui.error ? `<div class="error">${escapeHtml(ui.error)}</div>` : ""}`
           : `<p class="wait">主催者がお題を選んでいます…</p>`
       }
@@ -488,7 +489,7 @@ function renderChoosing() {
       }</p>
       ${
         isHost && s.canClosePicks
-          ? `<button class="btn" data-act="close-picks" ${ui.busy ? "disabled" : ""}>この人数で開票する（${s.pickedCount}人）</button>`
+          ? `<button class="btn" data-act="close-picks">この人数で開票する（${s.pickedCount}人）</button>`
           : ""
       }
       ${ui.error ? `<div class="error">${escapeHtml(ui.error)}</div>` : ""}
@@ -800,7 +801,8 @@ function setupArena(s) {
     port.style.top = `${seat.portY}%`;
     port.dataset.act = "reveal-one";
     port.dataset.id = seat.id;
-    port.title = p.name;
+    port.title = `${p.name}を開票`;
+    port.setAttribute("aria-label", `${p.name}を開票`);
     port.innerHTML = `<span class="port-arrow">➤</span>`;
     seatsEl.appendChild(port);
   }
@@ -833,11 +835,6 @@ function updatePorts(s) {
     const can = isHost && oneByOne && !done;
     seat.classList.toggle("tap", can);
     seat.classList.toggle("done", done);
-    if (can) {
-      seat.dataset.act = "reveal-one";
-    } else {
-      delete seat.dataset.act;
-    }
   });
 }
 
@@ -929,11 +926,11 @@ function hostActionsHtml(s) {
     }
     ${
       allDone
-        ? `<button class="btn" data-act="finish" ${ui.busy ? "disabled" : ""}>結果へ</button>`
+        ? `<button class="btn" data-act="finish">結果へ</button>`
         : `<p class="wait">${s.revealStyle === "one" ? `残り ${left} 人` : "線が伸びています…"}</p>
            ${
              s.canSkipReveal
-               ? `<button class="btn" data-act="skip-result" ${ui.busy ? "disabled" : ""}>${
+               ? `<button class="btn" data-act="skip-result">${
                    (s.revealedIds || []).length || (s.anonHiddenIds || []).length
                      ? "残りをスキップして次へ"
                      : "開票せずに次の回戦へ"
@@ -941,7 +938,7 @@ function hostActionsHtml(s) {
                : ""
            }`
     }
-    <button class="btn ghost" data-act="back-topic" ${ui.busy ? "disabled" : ""}>お題選択に戻る</button>`;
+    <button class="btn ghost" data-act="back-topic">お題選択に戻る</button>`;
 }
 
 function renderReveal() {
@@ -958,16 +955,16 @@ function renderReveal() {
       isHost && s.phase === "reveal" && !(s.revealedIds || []).length && !(s.anonHiddenIds || []).length
         ? `<div class="style-row" style="margin-bottom:10px">
             <button type="button" class="${s.revealStyle === "one" ? "on" : ""}" data-act="style" data-style="one">人を選んで開票</button>
-            <button type="button" data-act="reveal-all" ${ui.busy ? "disabled" : ""}>全員一気に開票</button>
+            <button type="button" data-act="reveal-all">全員一気に開票</button>
             ${
               s.mode === "love" && s.canAnonFemale
-                ? `<button type="button" class="on" data-act="anon-female" ${ui.busy ? "disabled" : ""}>女性匿名開票（GMのみ）</button>`
+                ? `<button type="button" class="on" data-act="anon-female">女性匿名開票（GMのみ）</button>`
                 : ""
             }
           </div>`
         : s.canAnonFemale
           ? `<div class="style-row" style="margin-bottom:10px">
-              <button type="button" class="on" data-act="anon-female" ${ui.busy ? "disabled" : ""}>女性匿名開票（GMのみ）</button>
+              <button type="button" class="on" data-act="anon-female">女性匿名開票（GMのみ）</button>
             </div>`
           : ""
     }
@@ -975,7 +972,7 @@ function renderReveal() {
       isHost
         ? s.revealStyle === "all" || (s.revealedIds || []).length || (s.anonHiddenIds || []).length
           ? "線の矢印が、誰に向かっているかを表します。両方の線が出てから成立／不成立が出ます"
-          : "人のアイコンか矢印ボタンを押すと、その人の線が伸びます。ラブモードはGMだけ「女性匿名開票」が使えます"
+          : "黄色い矢印ボタンを押すと、その人の線が伸びます。ラブモードはGMだけ「女性匿名開票」が使えます"
         : "主催者が開票しています。矢印の向きを見てね"
     }</p>
     ${arenaHtml(s)}
@@ -1002,8 +999,8 @@ function renderResult() {
       <p class="host-tip">同じお題でもう一回指名します。</p>
       ${
         isHost
-          ? `<button class="btn" data-act="next" ${ui.busy ? "disabled" : ""}>同じお題でもう一回</button>
-             <button class="btn ghost" data-act="back-topic" ${ui.busy ? "disabled" : ""}>お題選択に戻る</button>`
+          ? `<button class="btn" data-act="next">同じお題でもう一回</button>
+             <button class="btn ghost" data-act="back-topic">お題選択に戻る</button>`
           : `<p class="wait">主催者の操作待ち…</p>`
       }
     </div>
@@ -1045,8 +1042,8 @@ function renderGameover() {
       ${pairHtml(s)}
       ${
         isHost
-          ? `<button class="btn" data-act="back-topic" ${ui.busy ? "disabled" : ""}>お題選択に戻る</button>
-             <button class="btn ghost" data-act="again" ${ui.busy ? "disabled" : ""}>ロビーに戻る</button>`
+          ? `<button class="btn" data-act="back-topic">お題選択に戻る</button>
+             <button class="btn ghost" data-act="again">ロビーに戻る</button>`
           : `<p class="wait">主催者の操作待ち…</p>`
       }
     </div>
@@ -1120,7 +1117,9 @@ async function onClick(e) {
     return;
   }
   const btn = e.target.closest("[data-act]");
-  if (!btn || btn.disabled || btn.classList.contains("off")) return;
+  if (!btn) return;
+  if (btn.hasAttribute("disabled") || btn.classList.contains("off")) return;
+  e.preventDefault();
   const act = btn.dataset.act;
   const s = ui.state;
 
@@ -1189,7 +1188,7 @@ async function onClick(e) {
   if (act === "submit-pick") return emit("submit_pick", { targetId: ui.pickId });
   if (act === "close-picks") return emit("close_picks");
   if (act === "pick-for") return emit("host_pick_for", { playerId: btn.dataset.id });
-  if (act === "reveal-one") return emit("reveal_one", { playerId: btn.dataset.id }, { lock: false });
+  if (act === "reveal-one") return emit("reveal_one", { playerId: btn.dataset.id });
   if (act === "reveal-all") return emit("reveal_all");
   if (act === "anon-female") return emit("anon_female_reveal");
   if (act === "back-topic") return emit("back_to_topic");

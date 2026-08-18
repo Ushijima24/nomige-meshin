@@ -779,9 +779,9 @@ function seatLayout(room) {
       seats.push({
         id: p.id,
         side: "left",
-        x: 16,
+        x: 12,
         y,
-        portX: 30,
+        portX: 34,
         portY: y,
       });
     });
@@ -790,9 +790,9 @@ function seatLayout(room) {
       seats.push({
         id: p.id,
         side: "right",
-        x: 84,
+        x: 88,
         y,
-        portX: 70,
+        portX: 66,
         portY: y,
       });
     });
