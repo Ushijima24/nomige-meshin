@@ -456,76 +456,44 @@ input[type="text"] {
   transform: translate(-50%, -50%) rotate(-8deg);
   font-weight: 800;
   font-size: 0.95rem;
-  padding: 4px 10px;
+  padding: 5px 11px;
   border-radius: 8px;
   border: 3px solid currentColor;
   pointer-events: none;
   z-index: 6;
+  overflow: hidden;
   animation: pop 0.35s ease-out;
 }
 .stamp.ok {
-  color: #ff4d88;
-  background: rgba(255, 240, 246, 0.92);
-}
-.stamp.ok.love-ok {
   color: #fff;
   border-color: #ffd0e0;
   background: #ff4d88;
-  overflow: hidden;
-  padding: 6px 12px;
 }
-.stamp.ok.love-ok .heart-bg {
+.stamp.ok .heart-bg {
   position: absolute;
-  inset: -6px -4px;
-  font-size: 0.52rem;
-  line-height: 1.05;
-  letter-spacing: 3px;
-  color: rgba(255, 255, 255, 0.42);
+  inset: -4px -2px;
+  font-size: 0.48rem;
+  line-height: 0.95;
+  letter-spacing: 2px;
+  color: rgba(255, 255, 255, 0.38);
   transform: rotate(8deg);
   pointer-events: none;
   word-break: break-all;
 }
-.stamp.ok.love-ok .stamp-txt {
+.stamp .stamp-txt {
   position: relative;
   z-index: 1;
+}
+.stamp.ok .stamp-txt {
   text-shadow: 0 1px 2px rgba(80, 0, 30, 0.45);
 }
 .stamp.ng {
-  color: #9aa0b4;
-  background: rgba(30, 30, 40, 0.88);
+  color: #d8dce8;
+  background: rgba(30, 30, 40, 0.92);
 }
 @keyframes pop {
   from { transform: translate(-50%, -50%) scale(0.4) rotate(-8deg); opacity: 0; }
   to { transform: translate(-50%, -50%) scale(1) rotate(-8deg); opacity: 1; }
-}
-
-.center-heart {
-  position: absolute;
-  left: 50%;
-  top: 50%;
-  transform: translate(-50%, -50%);
-  font-size: 1.6rem;
-  z-index: 6;
-  animation: heartIn 0.5s ease-out;
-  filter: drop-shadow(0 0 8px #ff4d88);
-  pointer-events: none;
-}
-@keyframes heartIn {
-  0% { transform: translate(-50%, -50%) scale(0.2); opacity: 0; }
-  70% { transform: translate(-50%, -50%) scale(1.15); }
-  100% { transform: translate(-50%, -50%) scale(1); }
-}
-.spark {
-  position: absolute;
-  color: #fff;
-  font-size: 0.9rem;
-  animation: spark 0.9s ease-out forwards;
-  z-index: 6;
-  pointer-events: none;
-}
-@keyframes spark {
-  from { opacity: 1; transform: translate(-50%, -50%) scale(0.4); }
-  to { opacity: 0; transform: translate(-50%, -50%) scale(1.4); }
 }
 
 .banner {

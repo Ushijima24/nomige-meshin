@@ -644,19 +644,22 @@ function stampPos(fromId, toId) {
     px = -px;
     py = -py;
   }
-  const t = ui.state?.mode === "love" ? 0.2 : 0.28;
-  let x = a.portX + lx * t + px * 11;
-  let y = a.portY + ly * t + py * 11;
-  if (ui.state?.mode === "love" && x > 36 && x < 64) {
-    x = a.portX < 50 ? 28 : 72;
+  const t = 0.22;
+  let x = a.portX + lx * t + px * 16;
+  let y = a.portY + ly * t + py * 16;
+  if (x > 38 && x < 62 && y > 38 && y < 62) {
+    x += px * 22;
+    y += py * 22;
   }
-  x = Math.min(88, Math.max(12, x));
-  y = Math.min(86, Math.max(14, y));
+  x = Math.min(86, Math.max(14, x));
+  y = Math.min(84, Math.max(16, y));
   const used = ui.stampSpots || [];
   for (let n = 0; n < 12; n++) {
-    if (!used.some((u) => Math.hypot(u.x - x, u.y - y) < 16)) break;
-    y = Math.min(84, Math.max(16, y + (n % 2 === 0 ? 11 : -11)));
-    x = Math.min(86, Math.max(14, x + px * 3));
+    const tooCenter = x > 38 && x < 62 && y > 38 && y < 62;
+    const hit = used.some((u) => Math.hypot(u.x - x, u.y - y) < 16);
+    if (!tooCenter && !hit) break;
+    y = Math.min(82, Math.max(18, y + (n % 2 === 0 ? 12 : -12)));
+    x = Math.min(84, Math.max(16, x + px * 8));
   }
   used.push({ x, y });
   ui.stampSpots = used;
@@ -675,7 +678,6 @@ function tryJudgeStamps() {
       ui.stampedPairs.add(key);
       const pos = stampPos(pick.fromId, pick.toId);
       stampAt(pos.x, pos.y, true);
-      showCenterHeart();
     } else {
       if (ui.stampedFrom.has(pick.fromId)) continue;
       ui.stampedFrom.add(pick.fromId);
@@ -689,41 +691,15 @@ function stampAt(midX, midY, ok) {
   const fx = document.getElementById("fx");
   if (!fx) return;
   const el = document.createElement("div");
-  const loveOk = ok && ui.state?.mode === "love";
-  el.className = `stamp ${ok ? "ok" : "ng"}${loveOk ? " love-ok" : ""}`;
-  if (loveOk) {
-    el.innerHTML = `<span class="heart-bg" aria-hidden="true">♥ ♥ ♥ ♥ ♥ ♥ ♥ ♥ ♥ ♥ ♥ ♥</span><span class="stamp-txt">成立</span>`;
+  el.className = `stamp ${ok ? "ok" : "ng"}`;
+  if (ok) {
+    el.innerHTML = `<span class="heart-bg" aria-hidden="true">♥♥♥♥♥♥♥♥</span><span class="stamp-txt">成立</span>`;
   } else {
-    el.textContent = ok ? "成立" : "不成立";
+    el.innerHTML = `<span class="stamp-txt">不成立</span>`;
   }
   el.style.left = `${midX}%`;
   el.style.top = `${midY}%`;
   fx.appendChild(el);
-}
-
-function sparkles() {
-  const fx = document.getElementById("fx");
-  if (!fx) return;
-  for (let i = 0; i < 8; i++) {
-    const s = document.createElement("div");
-    s.className = "spark";
-    s.textContent = "✦";
-    s.style.left = `${42 + Math.random() * 16}%`;
-    s.style.top = `${42 + Math.random() * 16}%`;
-    fx.appendChild(s);
-    setTimeout(() => s.remove(), 900);
-  }
-}
-
-function showCenterHeart() {
-  if (ui.state?.mode === "love") return;
-  const fx = document.getElementById("fx");
-  if (!fx || fx.querySelector(".center-heart")) return;
-  const h = document.createElement("div");
-  h.className = "center-heart";
-  h.textContent = "♥";
-  fx.appendChild(h);
-  sparkles();
 }
 
 function drawPickLineInstant(fromId, toId) {
