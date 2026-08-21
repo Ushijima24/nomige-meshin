@@ -376,6 +376,9 @@ function beginChoosing(room, topic) {
   room.revealSeq = 0;
   room.lastReveal = null;
   room.roundIds = [...room.activeIds];
+  room.revealStyle = "one";
+  room.anonHiddenIds = [];
+  room.anonReport = null;
 }
 
 export function pickTopic(room, playerId, topicId) {
@@ -443,6 +446,7 @@ function startReveal(room) {
   room.lastReveal = null;
   room.anonHiddenIds = [];
   room.anonReport = null;
+  room.revealStyle = "one";
 }
 
 function maybeStartReveal(room) {

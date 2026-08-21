@@ -404,7 +404,9 @@ input[type="text"] {
 }
 .seat.paired { opacity: 0.35; }
 .seat.tap {
-  cursor: default;
+  cursor: pointer;
+  pointer-events: auto;
+  z-index: 9;
 }
 .seat.tap .av {
   box-shadow: 0 0 0 3px var(--accent), 0 4px 12px rgba(0, 0, 0, 0.4);

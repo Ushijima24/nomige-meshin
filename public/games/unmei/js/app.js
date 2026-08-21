@@ -352,6 +352,12 @@ function renderLobby() {
   const s = ui.state;
   const isHost = s.you?.isHost;
   const love = s.mode === "love";
+  const needMore = s.players.length < (s.minPlayers || 5);
+  const startHint = !s.canStart
+    ? needMore
+      ? `あと ${(s.minPlayers || 5) - s.players.length} 人必要です（ダミー追加でもOK）`
+      : "全員が男／女を選び、両方1人以上にしてね"
+    : "";
   return `
     ${screenHeadHtml()}
     <h1>運命の人ゲーム</h1>
@@ -380,10 +386,8 @@ function renderLobby() {
           </div>`
         : ""
     }
-    ${
-      love
-        ? `<div class="panel">
-      <div class="section-title">参加者 ${s.players.length}/10</div>
+    <div class="panel">
+      <div class="section-title">参加者 ${s.players.length}/10（開始 ${s.minPlayers || 5}人〜）</div>
       <div class="players">${s.players
         .map((p) => {
           const flags = [];
@@ -411,13 +415,19 @@ function renderLobby() {
           </div>`;
         })
         .join("")}</div>
-    </div>`
-        : ""
-    }
+      ${
+        isHost
+          ? `<div class="lobby-actions" style="margin-top:10px">
+              <button class="btn ghost" data-act="add-bot">＋PC参加</button>
+            </div>`
+          : ""
+      }
+    </div>
     <div class="lobby-actions">
       ${
         isHost
-          ? `<button class="btn" data-act="start" ${!s.canStart ? "disabled" : ""}>ゲーム開始（${s.minPlayers}人〜）</button>`
+          ? `<button class="btn" data-act="start" ${!s.canStart ? "disabled" : ""}>ゲーム開始（${s.minPlayers}人〜）</button>
+             ${startHint ? `<p class="host-tip">${escapeHtml(startHint)}</p>` : ""}`
           : `<p class="wait">主催者の開始待ち…</p>`
       }
       ${ui.error ? `<div class="error">${escapeHtml(ui.error)}</div>` : ""}
@@ -811,6 +821,13 @@ function updatePorts(s) {
     const can = isHost && oneByOne && !done;
     seat.classList.toggle("tap", can);
     seat.classList.toggle("done", done);
+    if (can) {
+      seat.dataset.act = "reveal-one";
+      seat.title = "タップして開票";
+    } else {
+      delete seat.dataset.act;
+      seat.removeAttribute("title");
+    }
   });
 }
 

@@ -194,7 +194,19 @@ function emit(event, data = {}) {
   return new Promise((resolve) => {
     ui.busy = true;
     render();
+    let settled = false;
+    const timer = setTimeout(() => {
+      if (settled) return;
+      settled = true;
+      ui.busy = false;
+      ui.error = ui.error || "応答がありません。もう一度押してね";
+      render();
+      resolve({ ok: false, error: ui.error });
+    }, 8000);
     socket.emit(event, data, (res) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
       ui.busy = false;
       if (res && !res.ok) {
         ui.error = res.error || "エラー";
@@ -411,12 +423,42 @@ function renderLobby() {
         : backLinkHtml()
     }
     <h1>トラップゲーム</h1>
+    <div class="panel">
+      <div class="section-title">参加者 ${s.players.length}/10</div>
+      <div class="players">${(s.players || [])
+        .map(
+          (p) =>
+            `<div class="player-chip ${p.connected === false ? "off" : ""}" style="display:flex;align-items:center;gap:8px;width:100%">
+              <span class="av">${p.avatar || "🦊"}</span>
+              <span class="nm">${escapeHtml(p.name)}${p.isHost ? " · 主催" : ""}${p.isBot ? " · PC" : ""}</span>
+              ${
+                s.isHost && p.id !== s.you?.id
+                  ? `<button type="button" class="btn ghost" style="padding:4px 8px;font-size:0.7rem;margin-left:auto" data-kick="${p.id}">削除</button>`
+                  : ""
+              }
+            </div>`
+        )
+        .join("")}</div>
+      ${
+        s.isHost
+          ? `<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px">
+              <button class="btn ghost" id="add-bot" ${ui.busy ? "disabled" : ""}>＋PC参加</button>
+              <button class="btn ghost" id="add-bots4" ${ui.busy ? "disabled" : ""}>＋PC×4</button>
+            </div>`
+          : ""
+      }
+    </div>
     <div class="lobby-actions">
       ${
         s.isHost
           ? `<button class="btn" id="start" ${
               ui.busy || s.players.length < 2 ? "disabled" : ""
-            }>ゲーム開始</button>`
+            }>ゲーム開始</button>
+             ${
+               s.players.length < 2
+                 ? `<p class="sub">2人以上必要です（PC参加でもOK）</p>`
+                 : ""
+             }`
           : `<p class="sub">主催者の開始待ち…</p>
              ${
                hasPartySession()

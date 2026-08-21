@@ -1616,6 +1616,17 @@ io.of("/unmei").on("connection", (socket) => {
     emitUnmei(room);
   });
 
+  socket.on("reveal_all", (_data, cb) => {
+    const sess = unmeiSessions.get(socket.id);
+    if (!sess) return cb?.({ ok: false, error: "未参加" });
+    const room = unmei.getRoom(sess.roomCode);
+    if (!room) return cb?.({ ok: false, error: "ルームなし" });
+    const result = unmei.revealAll(room, sess.playerId);
+    if (result.error) return cb?.({ ok: false, error: result.error });
+    cb?.({ ok: true });
+    emitUnmei(room);
+  });
+
   socket.on("anon_female_reveal", (_data, cb) => {
     const sess = unmeiSessions.get(socket.id);
     if (!sess) return cb?.({ ok: false, error: "未参加" });
@@ -1950,7 +1961,7 @@ io.of("/party").on("connection", (socket) => {
     if (gameId === "seikai-jinrou" && room.players.size < 3) {
       return cb?.({ ok: false, error: "それ正解人狼は3人以上必要です" });
     }
-    if (gameId === "unmei" && room.players.size < 3) {
+    if (gameId === "unmei" && room.players.size < 5) {
       return cb?.({ ok: false, error: "運命の人ゲームは5人以上必要です" });
     }
 

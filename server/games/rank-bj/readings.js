@@ -535,6 +535,77 @@ export function readingFits(surface, query) {
   return rec(0, 0);
 }
 
+/** 漢字名の候補読みを全部集める（あいまい一致用） */
+export function collectReadings(surface) {
+  const name = String(surface || "").replace(/[（(][^）)]*[）)]/g, "").trim();
+  if (!name || !hasKanji(name)) return [];
+  const out = new Set();
+  const walk = (i, acc) => {
+    if (i === name.length) {
+      if (acc) out.add(acc);
+      return;
+    }
+    const ch = name[i];
+    if (!hasKanji(ch)) {
+      const h = normalizeKana(ch);
+      walk(i + 1, acc + (h || ""));
+      return;
+    }
+    let any = false;
+    for (let len = Math.min(4, name.length - i); len >= 1; len--) {
+      const chunk = name.slice(i, i + len);
+      for (const r of readingsFor(chunk)) {
+        if (!r) continue;
+        any = true;
+        walk(i + len, acc + r);
+      }
+    }
+    if (!any) walk(i + 1, acc);
+  };
+  walk(0, "");
+  return [...out];
+}
+
+/**
+ * 読みのあいまいスコア（0 / 70〜120）
+ * 1文字抜け・余分・置換を拾う
+ */
+export function readingFuzzyScore(surface, query) {
+  if (readingFits(surface, query)) return 120;
+  const q = normalizeKana(query);
+  if (!q || q.length < 4) return 0;
+  if (!hasKanji(surface) || !isKanaOnly(query)) return 0;
+  let best = 0;
+  for (const r of collectReadings(surface)) {
+    if (!r) continue;
+    if (r === q) best = Math.max(best, 120);
+    else if (r.startsWith(q) && q.length >= 4) best = Math.max(best, 86);
+    else if (q.startsWith(r) && r.length >= 4) best = Math.max(best, 80);
+    else {
+      const maxLen = Math.max(r.length, q.length);
+      let d = 0;
+      // 簡易レーベンシュタイン（長さ差が大きいときはスキップ）
+      if (Math.abs(r.length - q.length) > 2) continue;
+      const prev = new Array(q.length + 1);
+      const cur = new Array(q.length + 1);
+      for (let j = 0; j <= q.length; j++) prev[j] = j;
+      for (let i = 1; i <= r.length; i++) {
+        cur[0] = i;
+        for (let j = 1; j <= q.length; j++) {
+          const cost = r[i - 1] === q[j - 1] ? 0 : 1;
+          cur[j] = Math.min(prev[j] + 1, cur[j - 1] + 1, prev[j - 1] + cost);
+        }
+        for (let j = 0; j <= q.length; j++) prev[j] = cur[j];
+      }
+      d = prev[q.length];
+      if (d === 1 && maxLen >= 5) best = Math.max(best, 92);
+      else if (d === 1 && maxLen >= 4) best = Math.max(best, 84);
+      else if (d === 2 && maxLen >= 7) best = Math.max(best, 76);
+    }
+  }
+  return best;
+}
+
 export function wikiKanaFromExtract(extract) {
   const text = String(extract || "");
   const m = text.match(/（\s*([ぁ-んァ-ヶー＝\s]+)/);

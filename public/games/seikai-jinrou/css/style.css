@@ -72,8 +72,23 @@ h1 {
   border-radius: 16px;
   padding: 14px;
   margin-bottom: 12px;
-  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.3);
 }
+.section-title {
+  font-weight: 800;
+  margin-bottom: 8px;
+}
+.players { display: grid; gap: 8px; }
+.player-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  border-radius: 12px;
+  background: rgba(0,0,0,0.18);
+}
+.player-row.off { opacity: 0.45; }
+.player-row .av { font-size: 1.4rem; }
+.player-row .nm { font-weight: 700; }
 
 label {
   display: block;

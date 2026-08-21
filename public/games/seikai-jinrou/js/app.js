@@ -146,7 +146,19 @@ function emit(event, data = {}) {
   return new Promise((resolve) => {
     ui.busy = true;
     render();
+    let settled = false;
+    const timer = setTimeout(() => {
+      if (settled) return;
+      settled = true;
+      ui.busy = false;
+      ui.error = ui.error || "応答がありません。もう一度押してね";
+      render();
+      resolve({ ok: false, error: ui.error });
+    }, 8000);
     socket.emit(event, data, (res) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
       ui.busy = false;
       if (res && !res.ok) ui.error = res.error || "エラー";
       render();
@@ -291,10 +303,32 @@ function renderLobby() {
   return `
     ${screenHeadHtml()}
     <h1>朝までそれ正解人狼</h1>
+    <div class="panel">
+      <div class="section-title">参加者 ${s.players.length}/10（開始 3人〜）</div>
+      <div class="players">${(s.players || [])
+        .map(
+          (p) =>
+            `<div class="player-row ${p.connected === false ? "off" : ""}">
+              <span class="av">${p.avatar || "🦊"}</span>
+              <span class="nm">${escapeHtml(p.name)}${p.isHost ? " · 主催" : ""}${p.isBot ? " · PC" : ""}</span>
+            </div>`
+        )
+        .join("")}</div>
+      ${
+        isHost
+          ? `<div style="margin-top:10px"><button class="btn ghost" id="btn-add-bot" ${ui.busy ? "disabled" : ""}>＋PC参加</button></div>`
+          : ""
+      }
+    </div>
     <div class="lobby-actions">
       ${
         isHost
-          ? `<button class="btn" id="btn-start" ${s.players.length < 3 || ui.busy ? "disabled" : ""}>ゲーム開始（3人〜）</button>`
+          ? `<button class="btn" id="btn-start" ${s.players.length < 3 || ui.busy ? "disabled" : ""}>ゲーム開始（3人〜）</button>
+             ${
+               s.players.length < 3
+                 ? `<p class="wait">あと ${3 - s.players.length} 人必要です（PC参加でもOK）</p>`
+                 : ""
+             }`
           : `<p class="wait">主催者の開始待ち…</p>
              ${hasPartySession() ? `<p class="sub" style="margin:0;text-align:center">主催者がゲーム選択に戻すまで待ってね</p>` : ""}`
       }
@@ -710,6 +744,7 @@ function bindEvents() {
     }
   });
   document.getElementById("btn-start")?.addEventListener("click", () => emit("start_game"));
+  document.getElementById("btn-add-bot")?.addEventListener("click", () => emit("add_bot"));
   document.getElementById("btn-party")?.addEventListener("click", () => goBackToParty());
   document.querySelectorAll("[data-topic]").forEach((btn) => {
     btn.addEventListener("click", () => emit("pick_topic", { topicId: btn.dataset.topic }));
