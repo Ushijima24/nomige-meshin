@@ -522,10 +522,11 @@ function tickTurnCounters(room, skip = {}) {
   }
 }
 
-function passDrink(room, toId, fromId) {
+function passDrink(room, toId, fromId, opts = {}) {
   room.lastPasserId = fromId;
   room.holderId = toId;
-  room.holderReceivedBoosted = (room.amount || 1) > 1;
+  // 倍倍Fight用: 量>1ではなく「このパスで酒を増やした」時だけ true
+  room.holderReceivedBoosted = !!opts.boosted;
   const to = getP(room, toId);
   const from = getP(room, fromId);
   pushLog(
@@ -1702,7 +1703,7 @@ function resolveEffect(room, playerId, effectId, opts) {
       const rid = pickRandom(room, playerId);
       if (!rid) return { error: "渡せる相手がいません" };
       pushLog(room, `💣 ${player.name} ボマー！量×5・特殊効果【免除】`);
-      passDrink(room, rid, playerId);
+      passDrink(room, rid, playerId, { boosted: true });
       return {};
     }
     case "muteki": {
@@ -1712,7 +1713,7 @@ function resolveEffect(room, playerId, effectId, opts) {
     }
     case "sanbai_gaeshi": {
       multiplyAmount(room, 3);
-      passDrink(room, opts.targetId, playerId);
+      passDrink(room, opts.targetId, playerId, { boosted: true });
       return {};
     }
     case "bochi_saguri": {
@@ -1787,7 +1788,7 @@ function resolveEffect(room, playerId, effectId, opts) {
       multiplyAmount(room, 2);
       const rid = pickRandom(room, playerId);
       if (!rid) return { error: "渡せる相手がいません" };
-      passDrink(room, rid, playerId);
+      passDrink(room, rid, playerId, { boosted: true });
       return {};
     }
     case "baibai_fight": {
@@ -1796,9 +1797,9 @@ function resolveEffect(room, playerId, effectId, opts) {
       if (boosted) {
         const rid = pickRandom(room, playerId);
         if (!rid) return { error: "渡せる相手がいません" };
-        pushLog(room, `🥊 倍倍Fight！回ってきた増やされた酒をさらに倍にして渡す（カードは残る）`);
-        passDrink(room, rid, playerId);
-        return { announceBody: "回ってきた酒を倍にして渡した（カードは残る）" };
+        pushLog(room, `🥊 倍倍Fight！直前で増やされた酒をさらに倍にして渡す（カードは残る）`);
+        passDrink(room, rid, playerId, { boosted: true });
+        return { announceBody: "直前で増やされた酒を倍にして渡した（カードは残る）" };
       }
       pushLog(room, `🥊 倍倍Fight！酒を倍にした`);
       return { announceBody: "酒を倍にした" };
