@@ -30,6 +30,7 @@ const ui = {
   announceId: null,
   announceVisible: false,
   carryPickId: null,
+  offline: false,
 };
 
 const params = new URLSearchParams(location.search);
@@ -117,7 +118,14 @@ function tryRejoin() {
   });
 }
 
-socket.on("connect", tryRejoin);
+socket.on("connect", () => {
+  ui.offline = false;
+  tryRejoin();
+});
+socket.on("disconnect", () => {
+  ui.offline = true;
+  render();
+});
 socket.on("go_party", ({ code } = {}) => {
   location.href = partyHomeUrl(code);
 });
@@ -142,6 +150,27 @@ window.addEventListener("pageshow", () => {
   if (socket.disconnected) socket.connect();
   else tryRejoin();
 });
+window.addEventListener("online", () => {
+  if (socket.disconnected) socket.connect();
+  else tryRejoin();
+});
+
+/** Render無料枠のスリープ防止＋途中切断からの復帰 */
+setInterval(() => {
+  fetch("/health").catch(() => {});
+}, 3 * 60 * 1000);
+setInterval(() => {
+  if (socket.disconnected) {
+    ui.offline = true;
+    socket.connect();
+    render();
+    return;
+  }
+  if (!loadSession()?.code) return;
+  if (ui.state?.phase === "playing" || ui.state?.phase === "result" || ui.state?.phase === "lobby") {
+    socket.emit("sync", {}, () => {});
+  }
+}, 12 * 1000);
 
 fetch("/api/trap/cards")
   .then((r) => r.json())
@@ -1057,13 +1086,20 @@ function renderResult() {
   `;
 }
 
+function offlineBanner() {
+  if (!ui.offline) return "";
+  return `<div class="offline-banner" role="status">接続が切れました。自動で再接続します…</div>`;
+}
+
 function render() {
-  if (ui.view === "rules") app.innerHTML = renderRules();
-  else if (ui.view === "joining") app.innerHTML = renderJoining();
-  else if (ui.view === "home") app.innerHTML = renderHome();
-  else if (ui.view === "lobby") app.innerHTML = renderLobby();
-  else if (ui.state?.phase === "result") app.innerHTML = renderResult();
-  else app.innerHTML = renderPlaying();
+  let body = "";
+  if (ui.view === "rules") body = renderRules();
+  else if (ui.view === "joining") body = renderJoining();
+  else if (ui.view === "home") body = renderHome();
+  else if (ui.view === "lobby") body = renderLobby();
+  else if (ui.state?.phase === "result") body = renderResult();
+  else body = renderPlaying();
+  app.innerHTML = offlineBanner() + body;
   bind();
 }
 

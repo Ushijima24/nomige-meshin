@@ -137,6 +137,20 @@ input[type="text"] {
   font-size: 0.9rem;
 }
 
+.offline-banner {
+  position: sticky;
+  top: 0;
+  z-index: 40;
+  margin: 0 0 12px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: #5a2a18;
+  color: #ffe8d6;
+  font-weight: 700;
+  font-size: 0.9rem;
+  text-align: center;
+}
+
 .code-big {
   font-size: 2rem;
   letter-spacing: 0.2em;

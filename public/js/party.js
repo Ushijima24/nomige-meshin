@@ -72,6 +72,34 @@ function tryRejoin() {
 }
 
 socket.on("connect", tryRejoin);
+socket.on("disconnect", () => {
+  ui.error = "接続が切れました。自動で再接続します…";
+  render();
+});
+document.addEventListener("visibilitychange", () => {
+  if (document.visibilityState !== "visible") return;
+  if (socket.disconnected) socket.connect();
+  else tryRejoin();
+});
+window.addEventListener("pageshow", () => {
+  if (socket.disconnected) socket.connect();
+  else tryRejoin();
+});
+window.addEventListener("online", () => {
+  if (socket.disconnected) socket.connect();
+  else tryRejoin();
+});
+setInterval(() => {
+  fetch("/health").catch(() => {});
+}, 3 * 60 * 1000);
+setInterval(() => {
+  if (socket.disconnected) {
+    socket.connect();
+    return;
+  }
+  const sess = loadSession();
+  if (sess?.code && sess?.playerId) tryRejoin();
+}, 20 * 1000);
 socket.on("state", (state) => {
   ui.state = state;
   ui.error = "";
@@ -110,7 +138,19 @@ function emit(event, data = {}) {
   return new Promise((resolve) => {
     ui.busy = true;
     render();
+    let settled = false;
+    const timer = setTimeout(() => {
+      if (settled) return;
+      settled = true;
+      ui.busy = false;
+      ui.error = ui.error || "応答がありません。もう一度押してね";
+      render();
+      resolve({ ok: false, error: ui.error });
+    }, 8000);
     socket.emit(event, data, (res) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
       ui.busy = false;
       if (res && !res.ok) ui.error = res.error || "エラー";
       render();

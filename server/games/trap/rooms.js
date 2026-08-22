@@ -375,6 +375,7 @@ export function pickDiscard(room, actorId, instanceId) {
   );
   room.pending = null;
   maybeAutoLoseEmptyHand(room);
+  touchAction(room);
   return { ok: true };
 }
 
@@ -843,11 +844,84 @@ function startMatch(room) {
   room.holderId = pickFirstHolder(room);
   room.phase = "playing";
   room.lastResult = null;
+  touchAction(room);
   const h = getP(room, room.holderId);
   pushLog(
     room,
     `🎮 試合${room.matchNumber}開始！最初の酒は ${h?.name}（杯数が少ないほど出やすい）`
   );
+}
+
+/** 操作があった時刻を更新（放置タイムアウト用） */
+export function touchAction(room) {
+  if (!room) return;
+  room.lastActionAt = Date.now();
+}
+
+/** 今カード／選択が必要なプレイヤー */
+export function currentActorId(room) {
+  if (room.phase !== "playing") return null;
+  if (room.pending?.type === "discard") return room.pending.actorId || null;
+  if (
+    room.pitouControllerId &&
+    room.holderId &&
+    room.pitouControllerId !== room.holderId
+  ) {
+    return room.pitouControllerId;
+  }
+  return room.holderId || null;
+}
+
+/**
+ * 放置・切断待ちで止まった操作を進める
+ * （乗り換え捨て待ち／ピトー／酒持ち）
+ */
+export function resolveStalledAction(room) {
+  if (room.phase !== "playing") return { ok: true, progressed: false };
+
+  if (room.pending?.type === "discard") {
+    const actor = getP(room, room.pending.actorId);
+    if (actor?.isBot) return { ok: true, progressed: false };
+    const name = getP(room, room.pending.playerId)?.name || actor?.name || "?";
+    autoPickDiscard(room);
+    pushLog(room, `⏱️ ${name} の選択が時間切れのため自動で捨てた`);
+    touchAction(room);
+    return { ok: true, progressed: true };
+  }
+
+  const pitouId = room.pitouControllerId;
+  const holderId = room.holderId;
+  if (pitouId && holderId && pitouId !== holderId) {
+    const pitou = getP(room, pitouId);
+    if (pitou?.isBot) return { ok: true, progressed: false };
+    room.pitouControllerId = null;
+    pushLog(
+      room,
+      `⏱️ ${pitou?.name || "?"} が時間切れのためネフェルピトー解除`
+    );
+    setAnnounce(room, {
+      type: "info",
+      playerId: pitouId,
+      name: pitou?.name || "?",
+      avatar: pitou?.avatar || "",
+      title: "時間切れ",
+      body: "ネフェルピトーが解除されました。酒持ちがカードを選べます。",
+    });
+    const holder = getP(room, holderId);
+    if (holder && holder.connected === false) {
+      pushLog(room, `🔌 ${holder.name} が切断中のため負け`);
+      touchAction(room);
+      return admitLose(room, holderId);
+    }
+    touchAction(room);
+    return { ok: true, progressed: true };
+  }
+
+  const holder = getP(room, holderId);
+  if (!holder || holder.isBot) return { ok: true, progressed: false };
+  pushLog(room, `⏱️ ${holder.name} が時間切れのため負け`);
+  touchAction(room);
+  return admitLose(room, holderId);
 }
 
 export function listAvatars() {
@@ -1117,6 +1191,13 @@ export function resolveDisconnectedPlayer(room, playerId) {
       title: `${p.name} が切断`,
       body: "ネフェルピトーが解除されました。酒持ちがカードを選べます。",
     });
+    const holder = getP(room, room.holderId);
+    if (holder && holder.connected === false) {
+      pushLog(room, `🔌 ${holder.name} も切断中のため負け`);
+      touchAction(room);
+      return admitLose(room, holder.id);
+    }
+    touchAction(room);
     return { ok: true };
   }
 
@@ -1128,9 +1209,13 @@ export function resolveDisconnectedPlayer(room, playerId) {
     if (room.pending?.type === "discard") autoPickDiscard(room);
     room.pitouControllerId = null;
     pushLog(room, `🔌 ${p.name} が切断したため負け`);
+    touchAction(room);
     return admitLose(room, playerId);
   }
-  if (room.pending?.actorId === playerId) autoPickDiscard(room);
+  if (room.pending?.actorId === playerId) {
+    autoPickDiscard(room);
+    touchAction(room);
+  }
   return { ok: true };
 }
 
@@ -1670,6 +1755,7 @@ export function playCard(room, actorId, instanceId, opts = {}) {
     room.pending = { type: "discard", playerId, actorId };
   }
 
+  touchAction(room);
   return { ok: true, ...result };
 }
 
@@ -2063,6 +2149,7 @@ export function admitLose(room, playerId) {
     });
   }
   applyDrink(room, holderId, { forced: false });
+  touchAction(room);
   return { ok: true };
 }
 

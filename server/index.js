@@ -419,7 +419,9 @@ const trapGrace = createGraceTracker(
 );
 
 const TRAP_PLAY_DISCONNECT_MS = 25 * 1000;
+const TRAP_AFK_MS = 45 * 1000;
 const trapPlayDisconnectTimers = new Map();
+const trapAfkTimers = new Map();
 function trapPlayDisconnectKey(code, id) {
   return `${code}:${id}`;
 }
@@ -444,9 +446,50 @@ function scheduleTrapPlayDisconnect(code, id) {
       if (result) {
         emitTrap(room);
         kickTrapBots(room);
+        scheduleTrapAfkWatch(room);
       }
     }, TRAP_PLAY_DISCONNECT_MS)
   );
+}
+
+function cancelTrapAfkWatch(code) {
+  clearTimeout(trapAfkTimers.get(code));
+  trapAfkTimers.delete(code);
+}
+
+function scheduleTrapAfkWatch(room) {
+  if (!room?.code) return;
+  cancelTrapAfkWatch(room.code);
+  if (room.phase !== "playing") return;
+  const actorId = trap.currentActorId(room);
+  if (!actorId) return;
+  const actor = room.players.get(actorId);
+  if (!actor || actor.isBot) return;
+
+  const waited = Date.now() - (room.lastActionAt || Date.now());
+  const delay = Math.max(1000, TRAP_AFK_MS - waited);
+  trapAfkTimers.set(
+    room.code,
+    setTimeout(() => {
+      trapAfkTimers.delete(room.code);
+      const still = trap.getRoom(room.code);
+      if (!still || still.phase !== "playing") return;
+      const result = trap.resolveStalledAction(still);
+      if (result?.progressed || result?.ok) {
+        emitTrap(still);
+        kickTrapBots(still);
+        if (still.phase === "playing") scheduleTrapAfkWatch(still);
+      }
+    }, delay)
+  );
+}
+
+function afterTrapAction(room) {
+  if (!room) return;
+  trap.touchAction(room);
+  emitTrap(room);
+  kickTrapBots(room);
+  scheduleTrapAfkWatch(room);
 }
 
 function kickTrapBots(room) {
@@ -473,6 +516,8 @@ function kickTrapBots(room) {
     emitTrap(room);
     if (room.phase === "playing" && trap.listBotsNeedingAction(room).length) {
       kickTrapBots(room);
+    } else {
+      scheduleTrapAfkWatch(room);
     }
   }, delay);
 }
@@ -517,9 +562,23 @@ io.of("/trap").on("connection", (socket) => {
       cb?.({ ok: true, playerId: result.playerId, code: result.room.code });
       emitTrap(result.room);
       kickTrapBots(result.room);
+      scheduleTrapAfkWatch(result.room);
     } catch (e) {
       cb?.({ ok: false, error: e.message || "復帰失敗" });
     }
+  });
+
+  socket.on("sync", (_data, cb) => {
+    const sess = trapSessions.get(socket.id);
+    if (!sess) return cb?.({ ok: false, error: "未参加" });
+    const room = trap.getRoom(sess.roomCode);
+    if (!room) return cb?.({ ok: false, error: "ルームなし" });
+    trap.setConnected(room, sess.playerId, true);
+    cancelTrapPlayDisconnect(sess.roomCode, sess.playerId);
+    cb?.({ ok: true });
+    emitTrap(room);
+    kickTrapBots(room);
+    scheduleTrapAfkWatch(room);
   });
 
   socket.on("kick_player", ({ playerId }, cb) => {
@@ -554,6 +613,7 @@ io.of("/trap").on("connection", (socket) => {
         emitTrap(updated);
         if (updated.phase === "playing") {
           scheduleTrapPlayDisconnect(sess.roomCode, sess.playerId);
+          scheduleTrapAfkWatch(updated);
         }
       }
     }
@@ -590,8 +650,7 @@ io.of("/trap").on("connection", (socket) => {
     const result = trap.startGame(room, sess.playerId);
     if (result.error) return cb?.({ ok: false, error: result.error });
     cb?.({ ok: true });
-    emitTrap(room);
-    kickTrapBots(room);
+    afterTrapAction(room);
   });
 
   socket.on("play_card", (data, cb) => {
@@ -609,8 +668,7 @@ io.of("/trap").on("connection", (socket) => {
     });
     if (result.error) return cb?.(result);
     cb?.({ ok: true, ...result });
-    emitTrap(room);
-    kickTrapBots(room);
+    afterTrapAction(room);
   });
 
   socket.on("pick_discard", (data, cb) => {
@@ -621,8 +679,7 @@ io.of("/trap").on("connection", (socket) => {
     const result = trap.pickDiscard(room, sess.playerId, data?.instanceId);
     if (result.error) return cb?.({ ok: false, error: result.error });
     cb?.({ ok: true });
-    emitTrap(room);
-    kickTrapBots(room);
+    afterTrapAction(room);
   });
 
   socket.on("admit_lose", (_data, cb) => {
@@ -633,7 +690,7 @@ io.of("/trap").on("connection", (socket) => {
     const result = trap.admitLose(room, sess.playerId);
     if (result.error) return cb?.({ ok: false, error: result.error });
     cb?.({ ok: true });
-    emitTrap(room);
+    afterTrapAction(room);
   });
 
   socket.on("clear_peek", (_data, cb) => {
@@ -643,8 +700,7 @@ io.of("/trap").on("connection", (socket) => {
     if (!room) return cb?.({ ok: false, error: "ルームなし" });
     trap.clearPeek(room, sess.playerId);
     cb?.({ ok: true });
-    emitTrap(room);
-    kickTrapBots(room);
+    afterTrapAction(room);
   });
 
   socket.on("pick_carry", (data, cb) => {
@@ -666,8 +722,7 @@ io.of("/trap").on("connection", (socket) => {
     const result = trap.nextMatch(room, sess.playerId);
     if (result.error) return cb?.({ ok: false, error: result.error });
     cb?.({ ok: true });
-    emitTrap(room);
-    kickTrapBots(room);
+    afterTrapAction(room);
   });
 
   socket.on("back_to_lobby", (_data, cb) => {
@@ -705,6 +760,7 @@ io.of("/trap").on("connection", (socket) => {
     trapGrace.schedule(sess.roomCode, sess.playerId);
     if (room.phase === "playing") {
       scheduleTrapPlayDisconnect(sess.roomCode, sess.playerId);
+      scheduleTrapAfkWatch(room);
     }
   });
 });
