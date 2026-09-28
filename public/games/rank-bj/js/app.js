@@ -1,3 +1,5 @@
+import { notePlayFinished } from "../../../js/play-ads.js";
+
 const AVATARS = ["🦊", "🐻", "🐱", "🐸", "🐼", "🐷", "🦁", "🐨", "🐵", "🐰", "🐯", "🐮", "🐶", "🐺", "🦝", "🐔", "🐧", "🦄", "🐙", "🦖", "👻", "🎃", "👽", "🤖"];
 const socket = io("/rank-bj", {
   transports: ["websocket", "polling"],
@@ -136,6 +138,9 @@ socket.on("state", (state) => {
   const prevStep = ui.state?.playStep;
   const prevDraw = ui.state?.draw;
   ui.state = state;
+  notePlayFinished(
+    state.phase === "result" ? `rank:${state.code}:${state.match}` : null
+  );
   ui.error = "";
   if (ui.view !== "rules") {
     if (state.phase === "lobby") ui.view = "lobby";

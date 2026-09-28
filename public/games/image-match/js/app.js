@@ -1,3 +1,5 @@
+import { notePlayFinished } from "../../../js/play-ads.js";
+
 const AVATARS = ["🦊", "🐻", "🐱", "🐸", "🐼", "🐷", "🦁", "🐨", "🐵", "🐰", "🐯", "🐮", "🐶", "🐺", "🦝", "🐔", "🐧", "🦄", "🐙", "🦖", "👻", "🎃", "👽", "🤖"];
 
 const socket = io({
@@ -131,6 +133,7 @@ window.addEventListener("pageshow", () => {
 
 socket.on("state", (state) => {
   ui.state = state;
+  notePlayFinished(state.phase === "done" ? `image:${state.code}:done` : null);
   ui.error = "";
   if (ui.view !== "rules") {
     if (state.phase === "lobby") ui.view = "lobby";

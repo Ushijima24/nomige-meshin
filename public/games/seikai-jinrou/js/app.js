@@ -1,3 +1,5 @@
+import { notePlayFinished } from "../../../js/play-ads.js";
+
 const AVATARS = ["🦊", "🐻", "🐱", "🐸", "🐼", "🐷", "🦁", "🐨", "🐵", "🐰", "🐯", "🐮", "🐶", "🐺", "🦝", "🐔", "🐧", "🦄", "🐙", "🦖", "👻", "🎃", "👽", "🤖"];
 const socket = io("/seikai-jinrou", {
   transports: ["websocket", "polling"],
@@ -132,6 +134,9 @@ window.addEventListener("pageshow", () => {
 
 socket.on("state", (state) => {
   ui.state = state;
+  notePlayFinished(
+    state.phase === "result" ? `jinrou:${state.code}:${state.round}` : null
+  );
   ui.error = "";
   if (ui.view !== "rules") {
     ui.view = state.phase === "lobby" ? "lobby" : "game";

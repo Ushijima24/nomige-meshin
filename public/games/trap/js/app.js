@@ -1,3 +1,5 @@
+import { notePlayFinished } from "../../../js/play-ads.js";
+
 const AVATARS = ["🦊", "🐻", "🐱", "🐸", "🐼", "🐷", "🦁", "🐨", "🐵", "🐰", "🐯", "🐮", "🐶", "🐺", "🦝", "🐔", "🐧", "🦄", "🐙", "🦖", "👻", "🎃", "👽", "🤖"];
 const socket = io("/trap", {
   transports: ["websocket", "polling"],
@@ -184,6 +186,11 @@ let announceHideTimer = null;
 
 socket.on("state", (state) => {
   ui.state = state;
+  notePlayFinished(
+    state.phase === "result"
+      ? `trap:${state.code}:${state.matchNumber}`
+      : null
+  );
   ui.error = "";
   if (ui.view !== "rules") {
     if (state.phase === "lobby") ui.view = "lobby";

@@ -1,3 +1,5 @@
+import { notePlayFinished } from "../../../js/play-ads.js";
+
 const AVATARS = ["🦊", "🐻", "🐱", "🐸", "🐼", "🐷", "🦁", "🐨", "🐵", "🐰", "🐯", "🐮", "🐶", "🐺", "🦝", "🐔", "🐧", "🦄", "🐙", "🦖", "👻", "🎃", "👽", "🤖"];
 const AVATAR_COLORS = {
   "🦊": "#ff9a3d",
@@ -164,6 +166,9 @@ window.addEventListener("pageshow", () => {
 
 socket.on("state", (state) => {
   ui.state = state;
+  notePlayFinished(
+    state.phase === "gameover" ? `unmei:${state.code}:${state.round}:over` : null
+  );
   ui.error = "";
   if (ui.view !== "rules") {
     ui.view = state.phase === "lobby" ? "lobby" : "game";
